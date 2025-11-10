@@ -40,11 +40,13 @@ namespace DiskInfoToolkit
 
             //Start device changed listener
             _DevicesChangedThread = new Thread(DevicesChangedListener);
+            _DevicesChangedThread.Name = $"{nameof(StorageManager)}.{nameof(DevicesChangedListener)}";
             _DevicesChangedThread.IsBackground = true;
             _DevicesChangedThread.Start();
 
             //Start message loop
             _MessageLoopThread = new Thread(MessageLoop);
+            _MessageLoopThread.Name = $"{nameof(StorageManager)}.{nameof(MessageLoop)}";
             _MessageLoopThread.IsBackground = true;
             _MessageLoopThread.Start();
         }

@@ -73,7 +73,12 @@ namespace DiskInfoToolkit
 
             GetDiskGeometry(handle);
 
-            GetDiskInformation(handle);
+            IsValid = GetDiskInformation(handle);
+
+            if (!IsValid)
+            {
+                return;
+            }
 
             UpdatePartitions(handle);
 
@@ -520,7 +525,7 @@ namespace DiskInfoToolkit
             Marshal.FreeHGlobal(buffer);
         }
 
-        void GetDiskInformation(IntPtr handle)
+        bool GetDiskInformation(IntPtr handle)
         {
             var query = new STORAGE_PROPERTY_QUERY()
             {
@@ -542,10 +547,27 @@ namespace DiskInfoToolkit
                 SerialNumber = Marshal.PtrToStringAnsi(outBuffer + descriptor.SerialNumberOffset   );
                 Firmware     = Marshal.PtrToStringAnsi(outBuffer + descriptor.ProductRevisionOffset);
                 BusType      = descriptor.BusType;
+
+                //Is removable media ?
+                if (BusType == StorageBusType.BusTypeUsb
+                 && descriptor.RemovableMedia == 1)
+                {
+                    //Is possibly a SD Card reader ?
+                    if (ModelContains(this, "SD Card"))
+                    {
+                        Marshal.FreeHGlobal(outBuffer);
+                        Marshal.FreeHGlobal(queryPtr);
+
+                        //Skip that
+                        return false;
+                    }
+                }
             }
 
             Marshal.FreeHGlobal(outBuffer);
             Marshal.FreeHGlobal(queryPtr);
+
+            return true;
         }
 
         #endregion
