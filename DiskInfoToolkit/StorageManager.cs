@@ -39,12 +39,14 @@ namespace DiskInfoToolkit
             _WndProc = WindowProc;
 
             //Start device changed listener
-            _DevicesChangedTask = new Task(DevicesChangedListener);
-            _DevicesChangedTask.Start();
+            _DevicesChangedThread = new Thread(DevicesChangedListener);
+            _DevicesChangedThread.IsBackground = true;
+            _DevicesChangedThread.Start();
 
             //Start message loop
-            _MessageLoopTask = new Task(MessageLoop);
-            _MessageLoopTask.Start();
+            _MessageLoopThread = new Thread(MessageLoop);
+            _MessageLoopThread.IsBackground = true;
+            _MessageLoopThread.Start();
         }
 
         #endregion
@@ -54,14 +56,14 @@ namespace DiskInfoToolkit
         static IntPtr _HiddenWindowHwnd;
         static User32.WndProc _WndProc;
 
-        static Task _MessageLoopTask;
-        static Task _DevicesChangedTask;
+        static Thread _MessageLoopThread;
+        static Thread _DevicesChangedThread;
+
+        static readonly AutoResetEvent _DevicesChangedEvent = new(false);
 
         static ConcurrentQueue<DeviceChangedModel> _ChangedStorages = new();
 
         static object _StorageLock = new();
-
-        const int DevicesChangedDelayMS = 25;
 
         #endregion
 
@@ -211,6 +213,7 @@ namespace DiskInfoToolkit
                         {
                             StorageChangeIdentifier = StorageChangeIdentifierInternal.DevicesChanged,
                         });
+                        _DevicesChangedEvent.Set();
                         break;
                     //Normal event when drive was added or removed
                     case User32.DBT_DEVICEARRIVAL:
@@ -240,6 +243,7 @@ namespace DiskInfoToolkit
                                 DriveLetter = driveLetter,
                                 StorageChangeIdentifier = sci,
                             });
+                            _DevicesChangedEvent.Set();
                         }
                         else
                         {
@@ -257,28 +261,23 @@ namespace DiskInfoToolkit
             while (true)
             {
                 //Wait for device changes
-                if (!_ChangedStorages.IsEmpty)
+                _DevicesChangedEvent.WaitOne();
+
+                while (_ChangedStorages.TryDequeue(out var item))
                 {
-                    if (_ChangedStorages.TryDequeue(out var item))
+                    //Handle device change
+                    switch (item.StorageChangeIdentifier)
                     {
-                        //Handle device change
-                        switch (item.StorageChangeIdentifier)
-                        {
-                            case StorageChangeIdentifierInternal.Added:
-                                HandleDriveWithDriveLetterAdded(item);
-                                break;
-                            case StorageChangeIdentifierInternal.Removed:
-                                HandleDriveWithDriveLetterRemoved(item);
-                                break;
-                            case StorageChangeIdentifierInternal.DevicesChanged:
-                                HandleUnpartitionedDrive(item);
-                                break;
-                        }
+                        case StorageChangeIdentifierInternal.Added:
+                            HandleDriveWithDriveLetterAdded(item);
+                            break;
+                        case StorageChangeIdentifierInternal.Removed:
+                            HandleDriveWithDriveLetterRemoved(item);
+                            break;
+                        case StorageChangeIdentifierInternal.DevicesChanged:
+                            HandleUnpartitionedDrive(item);
+                            break;
                     }
-                }
-                else
-                {
-                    Thread.Sleep(DevicesChangedDelayMS);
                 }
             }
         }
