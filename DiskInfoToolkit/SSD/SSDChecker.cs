@@ -277,7 +277,7 @@ namespace DiskInfoToolkit.SSD
                  || ModelContains(storage, "SD5" )
                    )
                 {
-                    if (smartAttributes[2].ID == 0xAF || smartAttributes[3].ID == 0xAF)
+                    if (GetAt(smartAttributes, 2)?.ID == 0xAF || GetAt(smartAttributes, 3)?.ID == 0xAF)
                     {
                         storage.SmartKey = SmartKey.SanDiskDell;
                     }
@@ -427,21 +427,21 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x05
-             && smartAttributes[ 2].ID == 0x09
-             && smartAttributes[ 3].ID == 0x0C
-             && smartAttributes[ 4].ID == 0x64
-             && smartAttributes[ 5].ID == 0x66
-             && smartAttributes[ 6].ID == 0x67
-             && smartAttributes[ 7].ID == 0xAA
-             && smartAttributes[ 8].ID == 0xAB
-             && smartAttributes[ 9].ID == 0xAC
-             && smartAttributes[10].ID == 0xAD
-             && smartAttributes[11].ID == 0xAE
-             && smartAttributes[12].ID == 0xB1
-             && smartAttributes[13].ID == 0xB7
-             && smartAttributes[14].ID == 0xBB)
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x05
+             && GetAt(smartAttributes,  2)?.ID == 0x09
+             && GetAt(smartAttributes,  3)?.ID == 0x0C
+             && GetAt(smartAttributes,  4)?.ID == 0x64
+             && GetAt(smartAttributes,  5)?.ID == 0x66
+             && GetAt(smartAttributes,  6)?.ID == 0x67
+             && GetAt(smartAttributes,  7)?.ID == 0xAA
+             && GetAt(smartAttributes,  8)?.ID == 0xAB
+             && GetAt(smartAttributes,  9)?.ID == 0xAC
+             && GetAt(smartAttributes, 10)?.ID == 0xAD
+             && GetAt(smartAttributes, 11)?.ID == 0xAE
+             && GetAt(smartAttributes, 12)?.ID == 0xB1
+             && GetAt(smartAttributes, 13)?.ID == 0xB7
+             && GetAt(smartAttributes, 14)?.ID == 0xBB)
             {
                 flagSmartType = true;
 
@@ -450,25 +450,25 @@ namespace DiskInfoToolkit.SSD
                 storage.ATAInfo.VendorID = VendorIDs.SSDVendorSeagate;
                 storage.SmartKey = SmartKey.SeagateIronWolf;
             }
-            else if (smartAttributes[ 0].ID == 0x01
-                  && smartAttributes[ 1].ID == 0x09
-                  && smartAttributes[ 2].ID == 0x0C
-                  && smartAttributes[ 3].ID == 0x10
-                  && smartAttributes[ 4].ID == 0x11
-                  && smartAttributes[ 5].ID == 0xA8
-                  && smartAttributes[ 6].ID == 0xAA
-                  && smartAttributes[ 7].ID == 0xAD
-                  && smartAttributes[ 8].ID == 0xAE
-                  && smartAttributes[ 9].ID == 0xB1
-                  && smartAttributes[10].ID == 0xC0
-                  && smartAttributes[11].ID == 0xC2
-                  && smartAttributes[12].ID == 0xDA
-                  && smartAttributes[13].ID == 0xE7
-                  && smartAttributes[14].ID == 0xE8
-                  && smartAttributes[15].ID == 0xE9
-                  && smartAttributes[16].ID == 0xEB
-                  && smartAttributes[17].ID == 0xF1
-                  && smartAttributes[18].ID == 0xF2)
+            else if (GetAt(smartAttributes,  0)?.ID == 0x01
+                  && GetAt(smartAttributes,  1)?.ID == 0x09
+                  && GetAt(smartAttributes,  2)?.ID == 0x0C
+                  && GetAt(smartAttributes,  3)?.ID == 0x10
+                  && GetAt(smartAttributes,  4)?.ID == 0x11
+                  && GetAt(smartAttributes,  5)?.ID == 0xA8
+                  && GetAt(smartAttributes,  6)?.ID == 0xAA
+                  && GetAt(smartAttributes,  7)?.ID == 0xAD
+                  && GetAt(smartAttributes,  8)?.ID == 0xAE
+                  && GetAt(smartAttributes,  9)?.ID == 0xB1
+                  && GetAt(smartAttributes, 10)?.ID == 0xC0
+                  && GetAt(smartAttributes, 11)?.ID == 0xC2
+                  && GetAt(smartAttributes, 12)?.ID == 0xDA
+                  && GetAt(smartAttributes, 13)?.ID == 0xE7
+                  && GetAt(smartAttributes, 14)?.ID == 0xE8
+                  && GetAt(smartAttributes, 15)?.ID == 0xE9
+                  && GetAt(smartAttributes, 16)?.ID == 0xEB
+                  && GetAt(smartAttributes, 17)?.ID == 0xF1
+                  && GetAt(smartAttributes, 18)?.ID == 0xF2)
             {
                 flagSmartType = true;
 
@@ -518,7 +518,7 @@ namespace DiskInfoToolkit.SSD
             return
                 (
                     smartAttributes.Count == 1
-                 && smartAttributes[0].ID == 0xBB
+                 && GetAt(smartAttributes, 0)?.ID == 0xBB
                 )
               || ModelStartsWith(storage, "MTRON");
         }
@@ -534,10 +534,10 @@ namespace DiskInfoToolkit.SSD
                 if (ModelContains(storage, "THNSNC")
                  || ModelContains(storage, "THNSNJ")
                  || ModelContains(storage, "THNSNK")
-                 || ModelContains(storage, "KSG60")
-                 || ModelContains(storage, "TL100")
-                 || ModelContains(storage, "TR150")
-                 || ModelContains(storage, "TR200"))
+                 || ModelContains(storage, "KSG60" )
+                 || ModelContains(storage, "TL100" )
+                 || ModelContains(storage, "TR150" )
+                 || ModelContains(storage, "TR200" ))
                 {
                     //TOSHIBA HG3
                     //TOSHIBA KSG60ZMV
@@ -557,21 +557,21 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x02
-             && smartAttributes[ 2].ID == 0x03
-             && smartAttributes[ 3].ID == 0x05
-             && smartAttributes[ 4].ID == 0x07
-             && smartAttributes[ 5].ID == 0x08
-             && smartAttributes[ 6].ID == 0x09
-             && smartAttributes[ 7].ID == 0x0A
-             && smartAttributes[ 8].ID == 0x0C
-             && smartAttributes[ 9].ID == 0xA7
-             && smartAttributes[10].ID == 0xA8
-             && smartAttributes[11].ID == 0xA9
-             && smartAttributes[12].ID == 0xAA
-             && smartAttributes[13].ID == 0xAD
-             && smartAttributes[14].ID == 0xAF)
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x02
+             && GetAt(smartAttributes,  2)?.ID == 0x03
+             && GetAt(smartAttributes,  3)?.ID == 0x05
+             && GetAt(smartAttributes,  4)?.ID == 0x07
+             && GetAt(smartAttributes,  5)?.ID == 0x08
+             && GetAt(smartAttributes,  6)?.ID == 0x09
+             && GetAt(smartAttributes,  7)?.ID == 0x0A
+             && GetAt(smartAttributes,  8)?.ID == 0x0C
+             && GetAt(smartAttributes,  9)?.ID == 0xA7
+             && GetAt(smartAttributes, 10)?.ID == 0xA8
+             && GetAt(smartAttributes, 11)?.ID == 0xA9
+             && GetAt(smartAttributes, 12)?.ID == 0xAA
+             && GetAt(smartAttributes, 13)?.ID == 0xAD
+             && GetAt(smartAttributes, 14)?.ID == 0xAF)
             {
                 flagSmartType = true;
             }
@@ -587,19 +587,19 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x02
-             && smartAttributes[ 2].ID == 0x03
-             && smartAttributes[ 3].ID == 0x05
-             && smartAttributes[ 4].ID == 0x07
-             && smartAttributes[ 5].ID == 0x08
-             && smartAttributes[ 6].ID == 0x09
-             && smartAttributes[ 7].ID == 0x0A
-             && smartAttributes[ 8].ID == 0x0C
-             && smartAttributes[ 9].ID == 0xA8
-             && smartAttributes[10].ID == 0xAF
-             && smartAttributes[11].ID == 0xC0
-             && smartAttributes[12].ID == 0xC2
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x02
+             && GetAt(smartAttributes,  2)?.ID == 0x03
+             && GetAt(smartAttributes,  3)?.ID == 0x05
+             && GetAt(smartAttributes,  4)?.ID == 0x07
+             && GetAt(smartAttributes,  5)?.ID == 0x08
+             && GetAt(smartAttributes,  6)?.ID == 0x09
+             && GetAt(smartAttributes,  7)?.ID == 0x0A
+             && GetAt(smartAttributes,  8)?.ID == 0x0C
+             && GetAt(smartAttributes,  9)?.ID == 0xA8
+             && GetAt(smartAttributes, 10)?.ID == 0xAF
+             && GetAt(smartAttributes, 11)?.ID == 0xC0
+             && GetAt(smartAttributes, 12)?.ID == 0xC2
              )
             {
                 flagSmartType = true;
@@ -612,12 +612,12 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x0C
-             && smartAttributes[ 1].ID == 0x09
-             && smartAttributes[ 2].ID == 0xC2
-             && smartAttributes[ 3].ID == 0xE5
-             && smartAttributes[ 4].ID == 0xE8
-             && smartAttributes[ 5].ID == 0xE9
+            if (GetAt(smartAttributes,  0)?.ID == 0x0C
+             && GetAt(smartAttributes,  1)?.ID == 0x09
+             && GetAt(smartAttributes,  2)?.ID == 0xC2
+             && GetAt(smartAttributes,  3)?.ID == 0xE5
+             && GetAt(smartAttributes,  4)?.ID == 0xE8
+             && GetAt(smartAttributes,  5)?.ID == 0xE9
              )
             {
                 flagSmartType = true;
@@ -630,12 +630,12 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x09
-             && smartAttributes[ 2].ID == 0x0C
-             && smartAttributes[ 3].ID == 0xB8
-             && smartAttributes[ 4].ID == 0xC3
-             && smartAttributes[ 5].ID == 0xC4
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x09
+             && GetAt(smartAttributes,  2)?.ID == 0x0C
+             && GetAt(smartAttributes,  3)?.ID == 0xB8
+             && GetAt(smartAttributes,  4)?.ID == 0xC3
+             && GetAt(smartAttributes,  5)?.ID == 0xC4
              )
             {
                 flagSmartType = true;
@@ -653,33 +653,33 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x03
-             && smartAttributes[ 1].ID == 0x04
-             && smartAttributes[ 2].ID == 0x05
-             && smartAttributes[ 3].ID == 0x09
-             && smartAttributes[ 4].ID == 0x0C
+            if (GetAt(smartAttributes,  0)?.ID == 0x03
+             && GetAt(smartAttributes,  1)?.ID == 0x04
+             && GetAt(smartAttributes,  2)?.ID == 0x05
+             && GetAt(smartAttributes,  3)?.ID == 0x09
+             && GetAt(smartAttributes,  4)?.ID == 0x0C
              )
             {
-                var attr5 = smartAttributes[5];
-                var attr6 = smartAttributes[6];
-                var attr7 = smartAttributes[7];
+                var attr5 = GetAt(smartAttributes, 5);
+                var attr6 = GetAt(smartAttributes, 6);
+                var attr7 = GetAt(smartAttributes, 7);
 
-                if (attr5.ID == 0xC0 && attr6.ID == 0xE8 && attr7.ID == 0xE9)
+                if (attr5?.ID == 0xC0 && attr6?.ID == 0xE8 && attr7?.ID == 0xE9)
                 {
                     flagSmartType = true;
                 }
-                else if (attr5.ID == 0xC0 && attr6.ID == 0xE1)
+                else if (attr5?.ID == 0xC0 && attr6?.ID == 0xE1)
                 {
                     flagSmartType = true;
                 }
-                else if (attr5.ID == 0xAA && attr6.ID == 0xAB && attr7.ID == 0xAC)
+                else if (attr5?.ID == 0xAA && attr6?.ID == 0xAB && attr7?.ID == 0xAC)
                 {
                     flagSmartType = true;
                 }
             }
 
             return flagSmartType
-                || ModelContains(storage, "INTEL")
+                || ModelContains(storage, "INTEL"   )
                 || ModelContains(storage, "SOLIDIGM");
         }
 
@@ -688,61 +688,61 @@ namespace DiskInfoToolkit.SSD
             bool flagSmartType = false;
 
             //SM951
-            if (smartAttributes[ 0].ID == 0x05
-             && smartAttributes[ 1].ID == 0x09
-             && smartAttributes[ 2].ID == 0x0C
-             && smartAttributes[ 3].ID == 0xAA
-             && smartAttributes[ 4].ID == 0xAB
-             && smartAttributes[ 5].ID == 0xAC
-             && smartAttributes[ 6].ID == 0xAD
-             && smartAttributes[ 7].ID == 0xAE
-             && smartAttributes[ 8].ID == 0xB2
-             && smartAttributes[ 9].ID == 0xB4
+            if (GetAt(smartAttributes,  0)?.ID == 0x05
+             && GetAt(smartAttributes,  1)?.ID == 0x09
+             && GetAt(smartAttributes,  2)?.ID == 0x0C
+             && GetAt(smartAttributes,  3)?.ID == 0xAA
+             && GetAt(smartAttributes,  4)?.ID == 0xAB
+             && GetAt(smartAttributes,  5)?.ID == 0xAC
+             && GetAt(smartAttributes,  6)?.ID == 0xAD
+             && GetAt(smartAttributes,  7)?.ID == 0xAE
+             && GetAt(smartAttributes,  8)?.ID == 0xB2
+             && GetAt(smartAttributes,  9)?.ID == 0xB4
              )
             {
                 flagSmartType = true;
 
                 storage.HostReadsWritesUnit = HostReadsWritesUnit.HostReadsWritesGB;
             }
-            else if (smartAttributes[ 0].ID == 0x09
-                  && smartAttributes[ 1].ID == 0x0C
-                  && smartAttributes[ 2].ID == 0xB2
-                  && smartAttributes[ 3].ID == 0xB3
-                  && smartAttributes[ 4].ID == 0xB4
+            else if (GetAt(smartAttributes,  0)?.ID == 0x09
+                  && GetAt(smartAttributes,  1)?.ID == 0x0C
+                  && GetAt(smartAttributes,  2)?.ID == 0xB2
+                  && GetAt(smartAttributes,  3)?.ID == 0xB3
+                  && GetAt(smartAttributes,  4)?.ID == 0xB4
                   )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x09
-                  && smartAttributes[ 1].ID == 0x0C
-                  && smartAttributes[ 2].ID == 0xB1
-                  && smartAttributes[ 3].ID == 0xB2
-                  && smartAttributes[ 4].ID == 0xB3
-                  && smartAttributes[ 5].ID == 0xB4
-                  && smartAttributes[ 6].ID == 0xB7
+            else if (GetAt(smartAttributes,  0)?.ID == 0x09
+                  && GetAt(smartAttributes,  1)?.ID == 0x0C
+                  && GetAt(smartAttributes,  2)?.ID == 0xB1
+                  && GetAt(smartAttributes,  3)?.ID == 0xB2
+                  && GetAt(smartAttributes,  4)?.ID == 0xB3
+                  && GetAt(smartAttributes,  5)?.ID == 0xB4
+                  && GetAt(smartAttributes,  6)?.ID == 0xB7
                   )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x09
-                  && smartAttributes[ 1].ID == 0x0C
-                  && smartAttributes[ 2].ID == 0xAF
-                  && smartAttributes[ 3].ID == 0xB0
-                  && smartAttributes[ 4].ID == 0xB1
-                  && smartAttributes[ 5].ID == 0xB2
-                  && smartAttributes[ 6].ID == 0xB3
-                  && smartAttributes[ 7].ID == 0xB4
+            else if (GetAt(smartAttributes,  0)?.ID == 0x09
+                  && GetAt(smartAttributes,  1)?.ID == 0x0C
+                  && GetAt(smartAttributes,  2)?.ID == 0xAF
+                  && GetAt(smartAttributes,  3)?.ID == 0xB0
+                  && GetAt(smartAttributes,  4)?.ID == 0xB1
+                  && GetAt(smartAttributes,  5)?.ID == 0xB2
+                  && GetAt(smartAttributes,  6)?.ID == 0xB3
+                  && GetAt(smartAttributes,  7)?.ID == 0xB4
                   )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x05
-                  && smartAttributes[ 1].ID == 0x09
-                  && smartAttributes[ 2].ID == 0x0C
-                  && smartAttributes[ 3].ID == 0xB1
-                  && smartAttributes[ 4].ID == 0xB3
-                  && smartAttributes[ 5].ID == 0xB5
-                  && smartAttributes[ 6].ID == 0xB6
+            else if (GetAt(smartAttributes,  0)?.ID == 0x05
+                  && GetAt(smartAttributes,  1)?.ID == 0x09
+                  && GetAt(smartAttributes,  2)?.ID == 0x0C
+                  && GetAt(smartAttributes,  3)?.ID == 0xB1
+                  && GetAt(smartAttributes,  4)?.ID == 0xB3
+                  && GetAt(smartAttributes,  5)?.ID == 0xB5
+                  && GetAt(smartAttributes,  6)?.ID == 0xB6
                   )
             {
                 flagSmartType = true;
@@ -781,7 +781,7 @@ namespace DiskInfoToolkit.SSD
 
                 storage.HostReadsWritesUnit = HostReadsWritesUnit.HostReadsWrites512B;
             }
-            else if (ModelContains(storage, "M500SSD")
+            else if (ModelContains(storage, "M500SSD" )
                   || ModelContains(storage, "MX500SSD")
                   || ModelContains(storage, "MX300SSD")
                   || ModelContains(storage, "MX200SSD")
@@ -792,7 +792,7 @@ namespace DiskInfoToolkit.SSD
                   || ModelContains(storage, "BX200SSD")
                   || ModelContains(storage, "BX100SSD")
 
-                  || ModelStartsWith(storage, "MTFD")
+                  || ModelStartsWith(storage, "MTFD"  )
                   && !FirmwareRevContains(storage, "MU01"))
             {
                 flagSmartType = true;
@@ -809,17 +809,17 @@ namespace DiskInfoToolkit.SSD
 
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x05
-             && smartAttributes[ 2].ID == 0x09
-             && smartAttributes[ 3].ID == 0x0C
-             && smartAttributes[ 4].ID == 0xAA
-             && smartAttributes[ 5].ID == 0xAB
-             && smartAttributes[ 6].ID == 0xAC
-             && smartAttributes[ 7].ID == 0xAD
-             && smartAttributes[ 8].ID == 0xAE
-             && smartAttributes[ 9].ID == 0xB5
-             && smartAttributes[10].ID == 0xB7
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x05
+             && GetAt(smartAttributes,  2)?.ID == 0x09
+             && GetAt(smartAttributes,  3)?.ID == 0x0C
+             && GetAt(smartAttributes,  4)?.ID == 0xAA
+             && GetAt(smartAttributes,  5)?.ID == 0xAB
+             && GetAt(smartAttributes,  6)?.ID == 0xAC
+             && GetAt(smartAttributes,  7)?.ID == 0xAD
+             && GetAt(smartAttributes,  8)?.ID == 0xAE
+             && GetAt(smartAttributes,  9)?.ID == 0xB5
+             && GetAt(smartAttributes, 10)?.ID == 0xB7
              )
             {
                 flagSmartType = true;
@@ -845,8 +845,8 @@ namespace DiskInfoToolkit.SSD
                 || ModelStartsWith(storage, "M300")
                 || (ModelStartsWith(storage, "CT" ) && ModelContains(storage, "SSD"))
                 || ModelStartsWith(storage, "CRUCIAL")
-                || ModelStartsWith(storage, "MICRON")
-                || ModelStartsWith(storage, "MTFD")
+                || ModelStartsWith(storage, "MICRON" )
+                || ModelStartsWith(storage, "MTFD"   )
                 ;
         }
 
@@ -854,46 +854,46 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x05
-             && smartAttributes[ 2].ID == 0x09
-             && smartAttributes[ 3].ID == 0x0C
-             && smartAttributes[ 4].ID == 0x0D
-             && smartAttributes[ 5].ID == 0x64
-             && smartAttributes[ 6].ID == 0xAA
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x05
+             && GetAt(smartAttributes,  2)?.ID == 0x09
+             && GetAt(smartAttributes,  3)?.ID == 0x0C
+             && GetAt(smartAttributes,  4)?.ID == 0x0D
+             && GetAt(smartAttributes,  5)?.ID == 0x64
+             && GetAt(smartAttributes,  6)?.ID == 0xAA
              )
             {
                 flagSmartType = true;
             }
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x05
-             && smartAttributes[ 2].ID == 0x09
-             && smartAttributes[ 3].ID == 0x0C
-             && smartAttributes[ 4].ID == 0xAB
-             && smartAttributes[ 5].ID == 0xAC
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x05
+             && GetAt(smartAttributes,  2)?.ID == 0x09
+             && GetAt(smartAttributes,  3)?.ID == 0x0C
+             && GetAt(smartAttributes,  4)?.ID == 0xAB
+             && GetAt(smartAttributes,  5)?.ID == 0xAC
              )
             {
                 flagSmartType = true;
             }
 
             //TOSHIBA + SandForce
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x02
-             && smartAttributes[ 2].ID == 0x03
-             && smartAttributes[ 3].ID == 0x05
-             && smartAttributes[ 4].ID == 0x07
-             && smartAttributes[ 5].ID == 0x08
-             && smartAttributes[ 6].ID == 0x09
-             && smartAttributes[ 7].ID == 0x0A
-             && smartAttributes[ 8].ID == 0x0C
-             && smartAttributes[ 9].ID == 0xA7
-             && smartAttributes[10].ID == 0xA8
-             && smartAttributes[11].ID == 0xA9
-             && smartAttributes[12].ID == 0xAA
-             && smartAttributes[13].ID == 0xAD
-             && smartAttributes[14].ID == 0xAF
-             && smartAttributes[15].ID == 0xB1
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x02
+             && GetAt(smartAttributes,  2)?.ID == 0x03
+             && GetAt(smartAttributes,  3)?.ID == 0x05
+             && GetAt(smartAttributes,  4)?.ID == 0x07
+             && GetAt(smartAttributes,  5)?.ID == 0x08
+             && GetAt(smartAttributes,  6)?.ID == 0x09
+             && GetAt(smartAttributes,  7)?.ID == 0x0A
+             && GetAt(smartAttributes,  8)?.ID == 0x0C
+             && GetAt(smartAttributes,  9)?.ID == 0xA7
+             && GetAt(smartAttributes, 10)?.ID == 0xA8
+             && GetAt(smartAttributes, 11)?.ID == 0xA9
+             && GetAt(smartAttributes, 12)?.ID == 0xAA
+             && GetAt(smartAttributes, 13)?.ID == 0xAD
+             && GetAt(smartAttributes, 14)?.ID == 0xAF
+             && GetAt(smartAttributes, 15)?.ID == 0xB1
              )
             {
                 flagSmartType = true;
@@ -916,14 +916,14 @@ namespace DiskInfoToolkit.SSD
             //OCZ-PETROL
             //OCZ-OCTANE S2
             //OCZ-VERTEX 4
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x03
-             && smartAttributes[ 2].ID == 0x04
-             && smartAttributes[ 3].ID == 0x05
-             && smartAttributes[ 4].ID == 0x09
-             && smartAttributes[ 5].ID == 0x0C
-             && smartAttributes[ 6].ID == 0xE8
-             && smartAttributes[ 7].ID == 0xE9
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x03
+             && GetAt(smartAttributes,  2)?.ID == 0x04
+             && GetAt(smartAttributes,  3)?.ID == 0x05
+             && GetAt(smartAttributes,  4)?.ID == 0x09
+             && GetAt(smartAttributes,  5)?.ID == 0x0C
+             && GetAt(smartAttributes,  6)?.ID == 0xE8
+             && GetAt(smartAttributes,  7)?.ID == 0xE9
              )
             {
                 flagSmartType = true;
@@ -946,15 +946,15 @@ namespace DiskInfoToolkit.SSD
             }
 
             //PANASONIC RP-SSB240GAK
-            if (smartAttributes[ 0].ID == 0x05
-             && smartAttributes[ 1].ID == 0x09
-             && smartAttributes[ 2].ID == 0x0C
-             && smartAttributes[ 3].ID == 0xAB
-             && smartAttributes[ 4].ID == 0xAE
-             && smartAttributes[ 5].ID == 0xC3
-             && smartAttributes[ 6].ID == 0xC4
-             && smartAttributes[ 7].ID == 0xC5
-             && smartAttributes[ 8].ID == 0xC6
+            if (GetAt(smartAttributes,  0)?.ID == 0x05
+             && GetAt(smartAttributes,  1)?.ID == 0x09
+             && GetAt(smartAttributes,  2)?.ID == 0x0C
+             && GetAt(smartAttributes,  3)?.ID == 0xAB
+             && GetAt(smartAttributes,  4)?.ID == 0xAE
+             && GetAt(smartAttributes,  5)?.ID == 0xC3
+             && GetAt(smartAttributes,  6)?.ID == 0xC4
+             && GetAt(smartAttributes,  7)?.ID == 0xC5
+             && GetAt(smartAttributes,  8)?.ID == 0xC6
              )
             {
                 flagSmartType = true;
@@ -987,14 +987,14 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x05
-             && smartAttributes[ 2].ID == 0x09
-             && smartAttributes[ 3].ID == 0x0C
-             && smartAttributes[ 4].ID == 0xB1
-             && smartAttributes[ 5].ID == 0xB2
-             && smartAttributes[ 6].ID == 0xB5
-             && smartAttributes[ 7].ID == 0xB6
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x05
+             && GetAt(smartAttributes,  2)?.ID == 0x09
+             && GetAt(smartAttributes,  3)?.ID == 0x0C
+             && GetAt(smartAttributes,  4)?.ID == 0xB1
+             && GetAt(smartAttributes,  5)?.ID == 0xB2
+             && GetAt(smartAttributes,  6)?.ID == 0xB5
+             && GetAt(smartAttributes,  7)?.ID == 0xB6
              )
             {
                 flagSmartType = true;
@@ -1016,12 +1016,12 @@ namespace DiskInfoToolkit.SSD
 
             if (ModelContains(storage, "KINGSTON"))
             {
-                if (ModelContains(storage, "SM2280")
+                if (ModelContains(storage, "SM2280" )
                  || ModelContains(storage, "SEDC400")
-                 || ModelContains(storage, "SKC310")
-                 || ModelContains(storage, "SHSS")
-                 || ModelContains(storage, "SUV300")
-                 || ModelContains(storage, "SKC400"))
+                 || ModelContains(storage, "SKC310" )
+                 || ModelContains(storage, "SHSS"   )
+                 || ModelContains(storage, "SUV300" )
+                 || ModelContains(storage, "SKC400" ))
                 {
                     flagSmartType = true;
 
@@ -1096,16 +1096,16 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x05
-             && smartAttributes[ 2].ID == 0x09
-             && smartAttributes[ 3].ID == 0x0C
-             && smartAttributes[ 4].ID == 0xA1
-             && smartAttributes[ 5].ID == 0xA2
-             && smartAttributes[ 6].ID == 0xA3
-             && smartAttributes[ 7].ID == 0xA4
-             && smartAttributes[ 8].ID == 0xA6
-             && smartAttributes[ 9].ID == 0xA7
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x05
+             && GetAt(smartAttributes,  2)?.ID == 0x09
+             && GetAt(smartAttributes,  3)?.ID == 0x0C
+             && GetAt(smartAttributes,  4)?.ID == 0xA1
+             && GetAt(smartAttributes,  5)?.ID == 0xA2
+             && GetAt(smartAttributes,  6)?.ID == 0xA3
+             && GetAt(smartAttributes,  7)?.ID == 0xA4
+             && GetAt(smartAttributes,  8)?.ID == 0xA6
+             && GetAt(smartAttributes,  9)?.ID == 0xA7
              )
             {
                 flagSmartType = true;
@@ -1190,96 +1190,96 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x05
-             && smartAttributes[ 2].ID == 0x09
-             && smartAttributes[ 3].ID == 0x0C
-             && smartAttributes[ 4].ID == 0xA0
-             && smartAttributes[ 5].ID == 0xA1
-             && smartAttributes[ 6].ID == 0xA3
-             && smartAttributes[ 7].ID == 0xA4
-             && smartAttributes[ 8].ID == 0xA5
-             && smartAttributes[ 9].ID == 0xA6
-             && smartAttributes[10].ID == 0xA7
-             && smartAttributes[11].ID == 0xA8
-             && smartAttributes[12].ID == 0xA9
-             && smartAttributes[13].ID == 0xAF
-             && smartAttributes[14].ID == 0xB0
-             && smartAttributes[15].ID == 0xB1
-             && smartAttributes[16].ID == 0xB2
-             && smartAttributes[17].ID == 0xB5
-             && smartAttributes[18].ID == 0xB6
-             && smartAttributes[19].ID == 0xC0
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x05
+             && GetAt(smartAttributes,  2)?.ID == 0x09
+             && GetAt(smartAttributes,  3)?.ID == 0x0C
+             && GetAt(smartAttributes,  4)?.ID == 0xA0
+             && GetAt(smartAttributes,  5)?.ID == 0xA1
+             && GetAt(smartAttributes,  6)?.ID == 0xA3
+             && GetAt(smartAttributes,  7)?.ID == 0xA4
+             && GetAt(smartAttributes,  8)?.ID == 0xA5
+             && GetAt(smartAttributes,  9)?.ID == 0xA6
+             && GetAt(smartAttributes, 10)?.ID == 0xA7
+             && GetAt(smartAttributes, 11)?.ID == 0xA8
+             && GetAt(smartAttributes, 12)?.ID == 0xA9
+             && GetAt(smartAttributes, 13)?.ID == 0xAF
+             && GetAt(smartAttributes, 14)?.ID == 0xB0
+             && GetAt(smartAttributes, 15)?.ID == 0xB1
+             && GetAt(smartAttributes, 16)?.ID == 0xB2
+             && GetAt(smartAttributes, 17)?.ID == 0xB5
+             && GetAt(smartAttributes, 18)?.ID == 0xB6
+             && GetAt(smartAttributes, 19)?.ID == 0xC0
              )
             {
                 flagSmartType = true;
             }
             //ADATA SX950
-            else if (smartAttributes[ 0].ID == 0x01
-                  && smartAttributes[ 1].ID == 0x05
-                  && smartAttributes[ 2].ID == 0x09
-                  && smartAttributes[ 3].ID == 0x0C
-                  && smartAttributes[ 4].ID == 0xA0
-                  && smartAttributes[ 5].ID == 0xA1
-                  && smartAttributes[ 6].ID == 0xA3
-                  && smartAttributes[ 7].ID == 0xA4
-                  && smartAttributes[ 8].ID == 0xA5
-                  && smartAttributes[ 9].ID == 0xA6
-                  && smartAttributes[10].ID == 0xA7
-                  && smartAttributes[11].ID == 0x94
-                  && smartAttributes[12].ID == 0x95
-                  && smartAttributes[13].ID == 0x96
-                  && smartAttributes[14].ID == 0x97
-                  && smartAttributes[15].ID == 0xA9
-                  && smartAttributes[16].ID == 0xB1
-                  && smartAttributes[17].ID == 0xB5
-                  && smartAttributes[18].ID == 0xB6
-                  && smartAttributes[19].ID == 0xBB
+            else if (GetAt(smartAttributes,  0)?.ID == 0x01
+                  && GetAt(smartAttributes,  1)?.ID == 0x05
+                  && GetAt(smartAttributes,  2)?.ID == 0x09
+                  && GetAt(smartAttributes,  3)?.ID == 0x0C
+                  && GetAt(smartAttributes,  4)?.ID == 0xA0
+                  && GetAt(smartAttributes,  5)?.ID == 0xA1
+                  && GetAt(smartAttributes,  6)?.ID == 0xA3
+                  && GetAt(smartAttributes,  7)?.ID == 0xA4
+                  && GetAt(smartAttributes,  8)?.ID == 0xA5
+                  && GetAt(smartAttributes,  9)?.ID == 0xA6
+                  && GetAt(smartAttributes, 10)?.ID == 0xA7
+                  && GetAt(smartAttributes, 11)?.ID == 0x94
+                  && GetAt(smartAttributes, 12)?.ID == 0x95
+                  && GetAt(smartAttributes, 13)?.ID == 0x96
+                  && GetAt(smartAttributes, 14)?.ID == 0x97
+                  && GetAt(smartAttributes, 15)?.ID == 0xA9
+                  && GetAt(smartAttributes, 16)?.ID == 0xB1
+                  && GetAt(smartAttributes, 17)?.ID == 0xB5
+                  && GetAt(smartAttributes, 18)?.ID == 0xB6
+                  && GetAt(smartAttributes, 19)?.ID == 0xBB
                   )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x01
-                  && smartAttributes[ 1].ID == 0x05
-                  && smartAttributes[ 2].ID == 0x09
-                  && smartAttributes[ 3].ID == 0x0C
-                  && smartAttributes[ 4].ID == 0x94
-                  && smartAttributes[ 5].ID == 0x95
-                  && smartAttributes[ 6].ID == 0x96
-                  && smartAttributes[ 7].ID == 0x97
-                  && smartAttributes[ 8].ID == 0x9F
-                  && smartAttributes[ 9].ID == 0xA0
-                  && smartAttributes[10].ID == 0xA1
+            else if (GetAt(smartAttributes,  0)?.ID == 0x01
+                  && GetAt(smartAttributes,  1)?.ID == 0x05
+                  && GetAt(smartAttributes,  2)?.ID == 0x09
+                  && GetAt(smartAttributes,  3)?.ID == 0x0C
+                  && GetAt(smartAttributes,  4)?.ID == 0x94
+                  && GetAt(smartAttributes,  5)?.ID == 0x95
+                  && GetAt(smartAttributes,  6)?.ID == 0x96
+                  && GetAt(smartAttributes,  7)?.ID == 0x97
+                  && GetAt(smartAttributes,  8)?.ID == 0x9F
+                  && GetAt(smartAttributes,  9)?.ID == 0xA0
+                  && GetAt(smartAttributes, 10)?.ID == 0xA1
                   )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x01
-                  && smartAttributes[ 1].ID == 0x05
-                  && smartAttributes[ 2].ID == 0x09
-                  && smartAttributes[ 3].ID == 0x0C
-                  && smartAttributes[ 4].ID == 0xA0
-                  && smartAttributes[ 5].ID == 0xA1
-                  && smartAttributes[ 6].ID == 0xA3
-                  && smartAttributes[ 7].ID == 0xA4
-                  && smartAttributes[ 8].ID == 0xA5
-                  && smartAttributes[ 9].ID == 0xA6
-                  && smartAttributes[10].ID == 0xA7
+            else if (GetAt(smartAttributes,  0)?.ID == 0x01
+                  && GetAt(smartAttributes,  1)?.ID == 0x05
+                  && GetAt(smartAttributes,  2)?.ID == 0x09
+                  && GetAt(smartAttributes,  3)?.ID == 0x0C
+                  && GetAt(smartAttributes,  4)?.ID == 0xA0
+                  && GetAt(smartAttributes,  5)?.ID == 0xA1
+                  && GetAt(smartAttributes,  6)?.ID == 0xA3
+                  && GetAt(smartAttributes,  7)?.ID == 0xA4
+                  && GetAt(smartAttributes,  8)?.ID == 0xA5
+                  && GetAt(smartAttributes,  9)?.ID == 0xA6
+                  && GetAt(smartAttributes, 10)?.ID == 0xA7
                   )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x01
-                  && smartAttributes[ 1].ID == 0x05
-                  && smartAttributes[ 2].ID == 0x09
-                  && smartAttributes[ 3].ID == 0x0C
-                  && smartAttributes[ 4].ID == 0xA0
-                  && smartAttributes[ 5].ID == 0xA1
-                  && smartAttributes[ 6].ID == 0xA3
-                  && smartAttributes[ 7].ID == 0x94
-                  && smartAttributes[ 8].ID == 0x95
-                  && smartAttributes[ 9].ID == 0x96
-                  && smartAttributes[10].ID == 0x97
+            else if (GetAt(smartAttributes,  0)?.ID == 0x01
+                  && GetAt(smartAttributes,  1)?.ID == 0x05
+                  && GetAt(smartAttributes,  2)?.ID == 0x09
+                  && GetAt(smartAttributes,  3)?.ID == 0x0C
+                  && GetAt(smartAttributes,  4)?.ID == 0xA0
+                  && GetAt(smartAttributes,  5)?.ID == 0xA1
+                  && GetAt(smartAttributes,  6)?.ID == 0xA3
+                  && GetAt(smartAttributes,  7)?.ID == 0x94
+                  && GetAt(smartAttributes,  8)?.ID == 0x95
+                  && GetAt(smartAttributes,  9)?.ID == 0x96
+                  && GetAt(smartAttributes, 10)?.ID == 0x97
                   )
             {
                 flagSmartType = true;
@@ -1333,31 +1333,31 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x01
-             && smartAttributes[ 1].ID == 0x09
-             && smartAttributes[ 2].ID == 0x0C
-             && smartAttributes[ 3].ID == 0xA8
-             && smartAttributes[ 4].ID == 0xAA
-             && smartAttributes[ 5].ID == 0xAD
-             && smartAttributes[ 6].ID == 0xC0
-             && smartAttributes[ 7].ID == 0xC2 //with Temperature Sensor
-             && smartAttributes[ 8].ID == 0xDA
-             && smartAttributes[ 9].ID == 0xE7
-             && smartAttributes[10].ID == 0xF1
+            if (GetAt(smartAttributes,  0)?.ID == 0x01
+             && GetAt(smartAttributes,  1)?.ID == 0x09
+             && GetAt(smartAttributes,  2)?.ID == 0x0C
+             && GetAt(smartAttributes,  3)?.ID == 0xA8
+             && GetAt(smartAttributes,  4)?.ID == 0xAA
+             && GetAt(smartAttributes,  5)?.ID == 0xAD
+             && GetAt(smartAttributes,  6)?.ID == 0xC0
+             && GetAt(smartAttributes,  7)?.ID == 0xC2 //with Temperature Sensor
+             && GetAt(smartAttributes,  8)?.ID == 0xDA
+             && GetAt(smartAttributes,  9)?.ID == 0xE7
+             && GetAt(smartAttributes, 10)?.ID == 0xF1
              )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x01
-                  && smartAttributes[ 1].ID == 0x09
-                  && smartAttributes[ 2].ID == 0x0C
-                  && smartAttributes[ 3].ID == 0xA8
-                  && smartAttributes[ 4].ID == 0xAA
-                  && smartAttributes[ 5].ID == 0xAD
-                  && smartAttributes[ 6].ID == 0xC0
-                  && smartAttributes[ 7].ID == 0xDA
-                  && smartAttributes[ 8].ID == 0xE7
-                  && smartAttributes[ 9].ID == 0xF1
+            else if (GetAt(smartAttributes,  0)?.ID == 0x01
+                  && GetAt(smartAttributes,  1)?.ID == 0x09
+                  && GetAt(smartAttributes,  2)?.ID == 0x0C
+                  && GetAt(smartAttributes,  3)?.ID == 0xA8
+                  && GetAt(smartAttributes,  4)?.ID == 0xAA
+                  && GetAt(smartAttributes,  5)?.ID == 0xAD
+                  && GetAt(smartAttributes,  6)?.ID == 0xC0
+                  && GetAt(smartAttributes,  7)?.ID == 0xDA
+                  && GetAt(smartAttributes,  8)?.ID == 0xE7
+                  && GetAt(smartAttributes,  9)?.ID == 0xF1
                   )
             {
                 flagSmartType = true;
@@ -1384,25 +1384,25 @@ namespace DiskInfoToolkit.SSD
         {
             bool flagSmartType = false;
 
-            if (smartAttributes[ 0].ID == 0x05
-             && smartAttributes[ 1].ID == 0x09
-             && smartAttributes[ 2].ID == 0x0C
-             && smartAttributes[ 3].ID == 0xA1
-             && smartAttributes[ 4].ID == 0xA4
-             && smartAttributes[ 5].ID == 0xA5
-             && smartAttributes[ 6].ID == 0xA6
-             && smartAttributes[ 7].ID == 0xA7
+            if (GetAt(smartAttributes,  0)?.ID == 0x05
+             && GetAt(smartAttributes,  1)?.ID == 0x09
+             && GetAt(smartAttributes,  2)?.ID == 0x0C
+             && GetAt(smartAttributes,  3)?.ID == 0xA1
+             && GetAt(smartAttributes,  4)?.ID == 0xA4
+             && GetAt(smartAttributes,  5)?.ID == 0xA5
+             && GetAt(smartAttributes,  6)?.ID == 0xA6
+             && GetAt(smartAttributes,  7)?.ID == 0xA7
              )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x05
-                  && smartAttributes[ 1].ID == 0x09
-                  && smartAttributes[ 2].ID == 0x0C
-                  && smartAttributes[ 3].ID == 0xA4
-                  && smartAttributes[ 4].ID == 0xA5
-                  && smartAttributes[ 5].ID == 0xA6
-                  && smartAttributes[ 6].ID == 0xA7
+            else if (GetAt(smartAttributes,  0)?.ID == 0x05
+                  && GetAt(smartAttributes,  1)?.ID == 0x09
+                  && GetAt(smartAttributes,  2)?.ID == 0x0C
+                  && GetAt(smartAttributes,  3)?.ID == 0xA4
+                  && GetAt(smartAttributes,  4)?.ID == 0xA5
+                  && GetAt(smartAttributes,  5)?.ID == 0xA6
+                  && GetAt(smartAttributes,  6)?.ID == 0xA7
                   )
             {
                 flagSmartType = true;
@@ -1439,23 +1439,23 @@ namespace DiskInfoToolkit.SSD
                 storage.HostReadsWritesUnit = HostReadsWritesUnit.HostReadsWritesGB;
             }
             else if (ModelStartsWith(storage, "HANYE-Q55")
-                  && smartAttributes[ 0].ID == 0x05
-                  && smartAttributes[ 1].ID == 0x09
-                  && smartAttributes[ 2].ID == 0x0C
-                  && smartAttributes[ 3].ID == 0xA4
-                  && smartAttributes[ 4].ID == 0xA5
-                  && smartAttributes[ 5].ID == 0xA6
-                  && smartAttributes[ 6].ID == 0xA7
+                  && GetAt(smartAttributes,  0)?.ID == 0x05
+                  && GetAt(smartAttributes,  1)?.ID == 0x09
+                  && GetAt(smartAttributes,  2)?.ID == 0x0C
+                  && GetAt(smartAttributes,  3)?.ID == 0xA4
+                  && GetAt(smartAttributes,  4)?.ID == 0xA5
+                  && GetAt(smartAttributes,  5)?.ID == 0xA6
+                  && GetAt(smartAttributes,  6)?.ID == 0xA7
                   )
             {
                 flagSmartType = true;
             }
-            else if (smartAttributes[ 0].ID == 0x05
-                  && smartAttributes[ 1].ID == 0x09
-                  && smartAttributes[ 2].ID == 0x0C
-                  && smartAttributes[ 3].ID == 0xA7
-                  && smartAttributes[ 4].ID == 0xA8
-                  && smartAttributes[ 5].ID == 0xA9
+            else if (GetAt(smartAttributes,  0)?.ID == 0x05
+                  && GetAt(smartAttributes,  1)?.ID == 0x09
+                  && GetAt(smartAttributes,  2)?.ID == 0x0C
+                  && GetAt(smartAttributes,  3)?.ID == 0xA7
+                  && GetAt(smartAttributes,  4)?.ID == 0xA8
+                  && GetAt(smartAttributes,  5)?.ID == 0xA9
                   )
             {
                 flagSmartType = true;
@@ -1549,6 +1549,18 @@ namespace DiskInfoToolkit.SSD
         #endregion
 
         #region Private
+
+        static SmartAttributeStructure? GetAt(List<SmartAttributeStructure> smartAttributes, int index)
+        {
+            if (index >= smartAttributes.Count || index < 0)
+            {
+                return null;
+            }
+            else
+            {
+                return smartAttributes[index];
+            }
+        }
 
         static bool ModelContains(Storage storage, string text)
         {

@@ -185,7 +185,7 @@ namespace ConsoleOutputTest
 
                     var percentFree = totalFreeSize == 0 ? 0 : 100M * totalFreeSize / storage.TotalSize;
 
-                    Log($"  -> {nameof(totalFreeSize                      ),Padding} = {totalFreeSize                      } ({percentFree:F2}%)");
+                    Log($"  -> {nameof(storage.TotalFreeSize              ),Padding} = {totalFreeSize                      } ({percentFree:F2}%)");
                 }
 
                 Log($"  -> {nameof(storage.TotalSize                  ),Padding} = {storage.TotalSize                  }");
