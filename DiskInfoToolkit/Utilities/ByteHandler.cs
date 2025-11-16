@@ -19,10 +19,20 @@ namespace DiskInfoToolkit.Utilities
 
         public static string ChangeByteOrder(string str)
         {
+            if (string.IsNullOrEmpty(str))
+            {
+                return string.Empty;
+            }
+
             var sb = new StringBuilder(str);
 
             for (int i = 0; i < sb.Length; i += 2)
             {
+                if (i + 1 >= sb.Length)
+                {
+                    break;
+                }
+
                 var temp = sb[i];
                 sb[i] = sb[i + 1];
                 sb[i + 1] = temp;
