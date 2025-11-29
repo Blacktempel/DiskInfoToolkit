@@ -39,6 +39,10 @@ namespace DiskInfoToolkit.Tests.Interop.Structures
 
             TestStructureSize<SmartAttributeStructure>(12);
 
+            TestStructureSize<SENDCMDOUTPARAMS>(17);
+            TestStructureSize<IDENTIFY_DEVICE_OUTDATA>(528);
+            TestStructureSize<DRIVERSTATUS>(12);
+
             TestStructureSize<NVME_IDENTIFY_DEVICE>(4096);
 
             TestStructureSize<STORAGE_PROPERTY_QUERY>(12);

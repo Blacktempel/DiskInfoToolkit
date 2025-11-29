@@ -250,11 +250,13 @@ namespace DiskInfoToolkit
             return true;
         }
 
-        static IntPtr WindowProc(IntPtr hWnd, uint msg, ulong wParam, IntPtr lParam)
+        static IntPtr WindowProc(IntPtr hWnd, uint msg, UIntPtr wParam, IntPtr lParam)
         {
+            var wparamInt = wParam.ToUInt64();
+
             if (msg == User32.WM_DEVICECHANGE)
             {
-                switch (wParam)
+                switch (wparamInt)
                 {
                     //This could be an unpartitioned drive
                     case User32.DBT_DEVNODES_CHANGED:
@@ -283,9 +285,9 @@ namespace DiskInfoToolkit
 
                             char driveLetter = (char)('A' + count);
 
-                            var sci = wParam == User32.DBT_DEVICEARRIVAL
-                                             ? StorageChangeIdentifierInternal.Added
-                                             : StorageChangeIdentifierInternal.Removed;
+                            var sci = wparamInt == User32.DBT_DEVICEARRIVAL
+                                                ? StorageChangeIdentifierInternal.Added
+                                                : StorageChangeIdentifierInternal.Removed;
 
                             _ChangedStorages.Enqueue(new DeviceChangedModel
                             {

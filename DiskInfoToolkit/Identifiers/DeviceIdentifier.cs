@@ -832,9 +832,14 @@ namespace DiskInfoToolkit.Identifiers
 
                 sendCmdOut = Marshal.PtrToStructure<IDENTIFY_DEVICE_OUTDATA>(ptrOut);
 
+                var offset = Marshal.OffsetOf<IDENTIFY_DEVICE_OUTDATA>(nameof(IDENTIFY_DEVICE_OUTDATA.SendCmdOutParam)).ToInt32()
+                           + Marshal.OffsetOf<SENDCMDOUTPARAMS>(nameof(SENDCMDOUTPARAMS.bBuffer)).ToInt32();
+
+                var bufferOffsetPtr = ptrOut + offset;
+
                 identifyDevice = new IdentifyDevice();
 
-                Marshal.Copy(sendCmdOut.SendCmdOutParam.bBuffer, 0, identifyDevice.IdentifyDevicePtr, Marshal.SizeOf<ATA_IDENTIFY_DEVICE>());
+                MarshalExtensions.Copy(bufferOffsetPtr, identifyDevice.IdentifyDevicePtr, 0, Marshal.SizeOf<ATA_IDENTIFY_DEVICE>());
 
                 Marshal.FreeHGlobal(ptrIn);
                 Marshal.FreeHGlobal(ptrOut);
@@ -877,9 +882,13 @@ namespace DiskInfoToolkit.Identifiers
 
                 var cmdOut = Marshal.PtrToStructure<SENDCMDOUTPARAMS>(outPtrLocation);
 
+                var offset = Marshal.OffsetOf<SENDCMDOUTPARAMS>(nameof(SENDCMDOUTPARAMS.bBuffer)).ToInt32();
+
+                var bufferOffsetPtr = outPtrLocation + offset;
+
                 identifyDevice = new IdentifyDevice();
 
-                Marshal.Copy(cmdOut.bBuffer, 0, identifyDevice.IdentifyDevicePtr, identifyDevice.PtrSize);
+                MarshalExtensions.Copy(bufferOffsetPtr, identifyDevice.IdentifyDevicePtr, 0, identifyDevice.PtrSize);
 
                 Marshal.FreeHGlobal(ptrAll);
 

@@ -5,7 +5,6 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
-    <ApplicationManifest>Resources/app.manifest</ApplicationManifest>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <Description>A toolkit for accessing disk data.</Description>
@@ -14,8 +13,8 @@
     <RepositoryUrl>https://github.com/Blacktempel/DiskInfoToolkit</RepositoryUrl>
     <PackageTags>disk; device; nvme; ssd; hdd; toolkit; thermal; sensor; thermal sensor; smart; s.m.a.r.t.; data; monitoring; system; disk info</PackageTags>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
-    <AssemblyVersion>1.0.7</AssemblyVersion>
-    <FileVersion>1.0.7</FileVersion>
+    <AssemblyVersion>1.0.8</AssemblyVersion>
+    <FileVersion>1.0.8</FileVersion>
     <Version>$(AssemblyVersion)</Version>
     <PackageIcon>packageicon.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -103,7 +102,7 @@
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="BlackSharp.Core" Version="1.0.4" />
+    <PackageReference Include="BlackSharp.Core" Version="1.0.5" />
     <PackageReference Include="System.Memory" Version="4.6.3" />
   </ItemGroup>
 

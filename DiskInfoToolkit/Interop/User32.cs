@@ -31,7 +31,7 @@ namespace DiskInfoToolkit.Interop
         public const int DBT_DEVTYP_HANDLE          = 0x00000006;
         public const int DBT_DEVTYP_DEVICEINTERFACE = 0x00000005;
 
-        public delegate IntPtr WndProc(IntPtr hWnd, uint msg, ulong wParam, IntPtr lParam);
+        public delegate IntPtr WndProc(IntPtr hWnd, uint msg, UIntPtr wParam, IntPtr lParam);
 
         [DllImport(DLLNAME, CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern ushort RegisterClassEx(ref WNDCLASSEX lpWndClass);
@@ -56,7 +56,7 @@ namespace DiskInfoToolkit.Interop
         public static extern bool DestroyWindow(IntPtr hwnd);
 
         [DllImport(DLLNAME)]
-        public static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, ulong wParam, IntPtr lParam);
+        public static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, UIntPtr wParam, IntPtr lParam);
 
         [DllImport(DLLNAME)]
         public static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
