@@ -110,11 +110,13 @@ namespace DiskInfoToolkit.HardDrive
                 }
                 else
                 {
-                    buf = Marshal.PtrToStructure<CMD_IDE_PATH_THROUGH>(ptr);
-
                     if (data != null)
                     {
-                        Array.Copy(buf.buffer, data, data.Length);
+                        var offset = Marshal.OffsetOf<CMD_IDE_PATH_THROUGH>(nameof(CMD_IDE_PATH_THROUGH.buffer)).ToInt32();
+
+                        var bufferOffsetPtr = ptr + offset;
+
+                        Marshal.Copy(bufferOffsetPtr, data, 0, data.Length);
                     }
 
                     Marshal.FreeHGlobal(ptr);
@@ -124,7 +126,7 @@ namespace DiskInfoToolkit.HardDrive
             return true;
         }
 
-        public static bool SendAtaCommandCsmi(IntPtr handle, CSMI_SAS_PHY_ENTITY? sasPhyEntity, byte main, byte sub, byte param, byte[] data)
+        public static unsafe bool SendAtaCommandCsmi(IntPtr handle, CSMI_SAS_PHY_ENTITY? sasPhyEntity, byte main, byte sub, byte param, byte[] data)
         {
             if (sasPhyEntity == null)
             {
@@ -198,7 +200,11 @@ namespace DiskInfoToolkit.HardDrive
 
             if (main != 0xEF && data != null)
             {
-                Array.Copy(csmiBuf.bDataBuffer, data, data.Length);
+                fixed (byte *pData = csmiBuf.bDataBuffer)
+                fixed (byte *pDest = data)
+                {
+                    Buffer.MemoryCopy(pData, pDest, data.LongLength, data.LongLength);
+                }
             }
 
             return true;

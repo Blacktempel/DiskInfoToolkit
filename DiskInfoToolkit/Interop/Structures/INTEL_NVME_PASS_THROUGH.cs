@@ -15,7 +15,7 @@ namespace DiskInfoToolkit.Interop.Structures
 
         public SRB_IO_CONTROL SRB;     // 0x0000 ~ 0x001B
         public INTEL_NVME_PAYLOAD Payload;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 0x1000)]
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4096)]
         public byte[] DataBuffer;
     }
 }

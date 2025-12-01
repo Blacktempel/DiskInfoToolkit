@@ -140,9 +140,12 @@ namespace DiskInfoToolkit.Smart
                     return false;
                 }
 
-                sendCmdOut = Marshal.PtrToStructure<SMART_READ_DATA_OUTDATA>(ptrOut);
+                var offset = Marshal.OffsetOf<SMART_READ_DATA_OUTDATA>(nameof(SMART_READ_DATA_OUTDATA.SendCmdOutParam)).ToInt32()
+                           + Marshal.OffsetOf<SENDCMDOUTPARAMS>(nameof(SENDCMDOUTPARAMS.bBuffer)).ToInt32();
 
-                Array.Copy(sendCmdOut.SendCmdOutParam.bBuffer, buffer, buffer.Length);
+                var bufferOffsetPtr = ptrOut + offset;
+
+                Marshal.Copy(bufferOffsetPtr, buffer, 0, buffer.Length);
 
                 Marshal.FreeHGlobal(ptrIn);
                 Marshal.FreeHGlobal(ptrOut);
@@ -246,9 +249,12 @@ namespace DiskInfoToolkit.Smart
                     return false;
                 }
 
-                sendCmdOut = Marshal.PtrToStructure<SMART_READ_DATA_OUTDATA>(ptrOut);
+                var offset = Marshal.OffsetOf<SMART_READ_DATA_OUTDATA>(nameof(SMART_READ_DATA_OUTDATA.SendCmdOutParam)).ToInt32()
+                           + Marshal.OffsetOf<SENDCMDOUTPARAMS>(nameof(SENDCMDOUTPARAMS.bBuffer)).ToInt32();
 
-                Array.Copy(sendCmdOut.SendCmdOutParam.bBuffer, buffer, buffer.Length);
+                var bufferOffsetPtr = ptrOut + offset;
+
+                Marshal.Copy(bufferOffsetPtr, buffer, 0, buffer.Length);
 
                 Marshal.FreeHGlobal(ptrIn);
                 Marshal.FreeHGlobal(ptrOut);
