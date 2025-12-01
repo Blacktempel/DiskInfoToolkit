@@ -62,7 +62,7 @@ namespace DiskInfoToolkit.Interop
             ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData);
 
         [DllImport(DLLNAME, SetLastError = true)]
-        public static extern bool SetupDiGetDeviceInterfaceDetail(
+        public static extern bool SetupDiGetDeviceInterfaceDetailW(
             IntPtr DeviceInfoSet,
             ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData,
             IntPtr DeviceInterfaceDetailData,
@@ -71,7 +71,7 @@ namespace DiskInfoToolkit.Interop
             IntPtr DeviceInfoData);
 
         [DllImport(DLLNAME, SetLastError = true)]
-        public static extern bool SetupDiGetDeviceInterfaceDetail(
+        public static extern bool SetupDiGetDeviceInterfaceDetailW(
             IntPtr DeviceInfoSet,
             ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData,
             IntPtr DeviceInterfaceDetailData,
@@ -79,8 +79,8 @@ namespace DiskInfoToolkit.Interop
             out int RequiredSize,
             ref SP_DEVINFO_DATA DeviceInfoData);
 
-        [DllImport(DLLNAME, SetLastError = true, CharSet = CharSet.Auto)]
-        public static extern bool SetupDiGetDeviceInterfaceDetail(
+        [DllImport(DLLNAME, SetLastError = true)]
+        public static extern bool SetupDiGetDeviceInterfaceDetailW(
             IntPtr DeviceInfoSet,
             ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData,
             ref SP_DEVICE_INTERFACE_DETAIL_DATA DeviceInterfaceDetailData,
