@@ -79,7 +79,7 @@ namespace DiskInfoToolkit
                 devInfoData.cbSize = (uint)Marshal.SizeOf<SP_DEVINFO_DATA>();
 
                 //Get required buffer size
-                SetupAPI.SetupDiGetDeviceInterfaceDetailW(devInfo, ref interfaceData, IntPtr.Zero, 0, out var requiredSize, IntPtr.Zero);
+                SetupAPI.SetupDiGetDeviceInterfaceDetailA(devInfo, ref interfaceData, IntPtr.Zero, 0, out var requiredSize, IntPtr.Zero);
 
                 IntPtr detailDataBuffer = Marshal.AllocHGlobal(requiredSize);
 
@@ -87,10 +87,10 @@ namespace DiskInfoToolkit
                 Marshal.WriteInt32(detailDataBuffer, IntPtr.Size == 8 ? 8 : 6); //Do not change that
 
                 //Get full device path and devInfo
-                if (SetupAPI.SetupDiGetDeviceInterfaceDetailW(devInfo, ref interfaceData, detailDataBuffer, requiredSize, out _, ref devInfoData))
+                if (SetupAPI.SetupDiGetDeviceInterfaceDetailA(devInfo, ref interfaceData, detailDataBuffer, requiredSize, out _, ref devInfoData))
                 {
                     var detailData = Marshal.PtrToStructure<SP_DEVICE_INTERFACE_DETAIL_DATA>(detailDataBuffer);
-                    string devicePath = Encoding.Unicode.GetString(detailData.DevicePath);
+                    string devicePath = Encoding.ASCII.GetString(detailData.DevicePath);
                     devicePath = NormalizeString(devicePath);
 
                     //Get Device Instance ID
