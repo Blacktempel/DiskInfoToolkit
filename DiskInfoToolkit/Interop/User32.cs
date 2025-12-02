@@ -39,8 +39,8 @@ namespace DiskInfoToolkit.Interop
         [DllImport(DLLNAME, CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern IntPtr CreateWindowEx(
            int dwExStyle,
-           [MarshalAs(UnmanagedType.LPStr)] string lpClassName,
-           [MarshalAs(UnmanagedType.LPStr)] string lpWindowName,
+           [MarshalAs(UnmanagedType.LPWStr)] string lpClassName,
+           [MarshalAs(UnmanagedType.LPWStr)] string lpWindowName,
            int dwStyle,
            int x,
            int y,
