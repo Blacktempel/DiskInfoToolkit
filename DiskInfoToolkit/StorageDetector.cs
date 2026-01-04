@@ -14,6 +14,7 @@ using BlackSharp.Core.Interop.Windows.Utilities;
 using DiskInfoToolkit.Internal;
 using DiskInfoToolkit.Interop;
 using DiskInfoToolkit.Interop.Structures;
+using DiskInfoToolkit.Logging;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -33,6 +34,7 @@ namespace DiskInfoToolkit
 
         static Guid GUID_DEVCLASS_SCSIADAPTER = new Guid("4D36E97B-E325-11CE-BFC1-08002BE10318");
         static Guid GUID_DEVINTERFACE_DISK = new Guid("53f56307-b6bf-11d0-94f2-00a0c91efb8b");
+        static Guid GUID_DEVINTERFACE_FLOPPY = new Guid("53f56311-B6BF-11d0-94F2-00A0C91EFB8B");
 
         #endregion
 
@@ -59,6 +61,8 @@ namespace DiskInfoToolkit
 
         static void MapStoragesInternal(List<StorageController> storagesInternal)
         {
+            GetExcludedStorages(out var excludedStorages);
+
             //Setup
             var devInfo = SetupAPI.SetupDiGetClassDevs(ref GUID_DEVINTERFACE_DISK, IntPtr.Zero, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
 
@@ -109,6 +113,16 @@ namespace DiskInfoToolkit
                             var device = si.StorageDeviceIDs.Find(sdi => string.Compare(sdi.DeviceID, instanceIDstr, StringComparison.OrdinalIgnoreCase) == 0);
                             if (device != null)
                             {
+                                var excluded = excludedStorages.Find(ex => string.Compare(ex, devicePath, StringComparison.OrdinalIgnoreCase) == 0);
+                                if (excluded != null)
+                                {
+                                    LogSimple.LogTrace($"Skipping and removing '{devicePath}' (is floppy).");
+
+                                    //Excluded device
+                                    si.StorageDeviceIDs.Remove(device);
+                                    break;
+                                }
+
                                 device.PhysicalPath = devicePath;
                                 device.HardwareID = hwID;
                                 device.DriveNumber = GetDriveNumber(devicePath);
@@ -202,6 +216,55 @@ namespace DiskInfoToolkit
             SetupAPI.SetupDiDestroyDeviceInfoList(devInfo);
 
             return storageDevices;
+        }
+
+        static void GetExcludedStorages(out List<string> excludedStorages)
+        {
+            excludedStorages = new List<string>();
+
+            //Setup
+            var devInfo = SetupAPI.SetupDiGetClassDevs(ref GUID_DEVINTERFACE_FLOPPY, IntPtr.Zero, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+
+            if (devInfo == InteropConstants.InvalidHandle)
+            {
+                return;
+            }
+
+            var interfaceData = new SP_DEVICE_INTERFACE_DATA();
+            interfaceData.cbSize = Marshal.SizeOf<SP_DEVICE_INTERFACE_DATA>();
+
+            uint index = 0;
+            while (SetupAPI.SetupDiEnumDeviceInterfaces(devInfo, IntPtr.Zero, ref GUID_DEVINTERFACE_FLOPPY, index, ref interfaceData))
+            {
+                ++index;
+
+                SP_DEVINFO_DATA devInfoData = new SP_DEVINFO_DATA();
+                devInfoData.cbSize = (uint)Marshal.SizeOf<SP_DEVINFO_DATA>();
+
+                //Get required buffer size
+                SetupAPI.SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, IntPtr.Zero, 0, out var requiredSize, IntPtr.Zero);
+
+                IntPtr detailDataBuffer = Marshal.AllocHGlobal(requiredSize);
+
+                //Marshal.StructureToPtr(detailData, detailDataBuffer, false);
+                Marshal.WriteInt32(detailDataBuffer, IntPtr.Size == 8 ? 8 : 6); //Do not change that
+
+                //Get full device path and devInfo
+                if (SetupAPI.SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, detailDataBuffer, requiredSize, out _, ref devInfoData))
+                {
+                    var detailData = Marshal.PtrToStructure<SP_DEVICE_INTERFACE_DETAIL_DATA>(detailDataBuffer);
+                    string devicePath = Encoding.Unicode.GetString(detailData.DevicePath);
+                    devicePath = NormalizeString(devicePath);
+
+                    LogSimple.LogTrace($"Adding '{devicePath}' to exclusion list (is floppy).");
+                    excludedStorages.Add(devicePath);
+                }
+
+                Marshal.FreeHGlobal(detailDataBuffer);
+            }
+
+            //Cleanup
+            SetupAPI.SetupDiDestroyDeviceInfoList(devInfo);
         }
 
         static int GetDriveNumber(string physicalPath)
