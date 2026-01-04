@@ -383,6 +383,54 @@ namespace DiskInfoToolkit
                 }
             }
 
+            //Check all PhysicalDrives for changes
+            for (int i = 0; i < MaxDrives; ++i)
+            {
+                Storage storage;
+
+                using (var guard = new LockGuard(_StorageLock))
+                {
+                    //Find storage if existing
+                    storage = _Storages.Find(s => s.DriveNumber == i);
+                }
+
+                //Simple physical path
+                var path = $@"\\.\PhysicalDrive{i}";
+
+                var handle = SafeFileHandler.OpenHandle(path);
+
+                //Handle invalid
+                if (!SafeFileHandler.IsHandleValid(handle))
+                {
+                    //Storage existed previously
+                    if (storage != null)
+                    {
+                        //Storage was removed
+                        removed.Add(storage);
+                    }
+
+                    //Continue checking
+                    continue;
+                }
+
+                //Handle valid -> close and continue
+                SafeFileHandler.CloseHandle(handle);
+
+                //Storage was added
+                if (storage == null)
+                {
+                    var drive = new StorageDevice
+                    {
+                        DeviceID = string.Empty,
+                        HardwareID = string.Empty,
+                        PhysicalPath = path,
+                        DriveNumber = i,
+                    };
+
+                    added.Add(new(new(), new() { drive }));
+                }
+            }
+
             //Handle added device[s]
             foreach (var add in added)
             {
