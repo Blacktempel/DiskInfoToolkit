@@ -515,7 +515,8 @@ namespace DiskInfoToolkit
             using (var guard = new LockGuard(_StorageLock))
             {
                 //Check if device already exists (avoid duplicates)
-                found = _Storages.Find(s => s.StorageController == si.Name
+                found = _Storages.Find(s => s.DriveNumber == disk.DriveNumber)
+                     ?? _Storages.Find(s => s.StorageController == si.Name
                                          && s.PhysicalPath      == disk.PhysicalPath);
             }
 
