@@ -405,8 +405,16 @@ namespace DiskInfoToolkit
                     //Storage existed previously
                     if (storage != null)
                     {
-                        //Storage was removed
-                        removed.Add(storage);
+                        //Verify that it's not already in removed list
+                        if (removed.Any(t => t.DriveNumber == i))
+                        {
+                            //Already in removed list; ignore
+                        }
+                        else //Not in removed list; add it
+                        {
+                            //Storage was removed
+                            removed.Add(storage);
+                        }
                     }
 
                     //Continue checking
@@ -419,15 +427,23 @@ namespace DiskInfoToolkit
                 //Storage was added
                 if (storage == null)
                 {
-                    var drive = new StorageDevice
+                    //Verify that it's not already in added list
+                    if (added.Any(t => t.Item2.Any(sd => sd.DriveNumber == i)))
                     {
-                        DeviceID = string.Empty,
-                        HardwareID = string.Empty,
-                        PhysicalPath = path,
-                        DriveNumber = i,
-                    };
+                        //Already in added list; ignore
+                    }
+                    else //Not in added list; add it
+                    {
+                        var drive = new StorageDevice
+                        {
+                            DeviceID = string.Empty,
+                            HardwareID = string.Empty,
+                            PhysicalPath = path,
+                            DriveNumber = i,
+                        };
 
-                    added.Add(new(new(), new() { drive }));
+                        added.Add(new(new() { Name = string.Empty }, new() { drive }));
+                    }
                 }
             }
 
