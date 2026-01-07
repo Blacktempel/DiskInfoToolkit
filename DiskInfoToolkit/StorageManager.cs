@@ -337,48 +337,37 @@ namespace DiskInfoToolkit
         {
             var currentDevices = StorageDetector.GetStorageDevices();
 
-            //Check for each current device if it can be identified in Storages
-            //If not -> added
-
-            var added = new List<Tuple<StorageController, List<StorageDevice>>>();
-
-            foreach (var device in currentDevices)
-            {
-                List<StorageDevice> matches;
-
-                using (var guard = new LockGuard(_StorageLock))
-                {
-                    matches = device.StorageDeviceIDs.Where(sdi => !_Storages
-                                                        .Any(s => s.StorageController == device.Name
-                                                               && s.PhysicalPath == sdi.PhysicalPath)).ToList();
-                }
-
-                if (matches.Count > 0)
-                {
-                    added.Add(new(device, matches));
-                }
-            }
-
-            //Check for each Storage if it can be identified anywhere in current devices
-            //If not -> removed
-
-            var removed = new List<Storage>();
+            //Snapshot current storages
+            List<Storage> storagesSnapshot;
 
             using (var guard = new LockGuard(_StorageLock))
             {
-                foreach (var storage in _Storages)
-                {
-                    //Check if storage exists in current devices
-                    var match = currentDevices.Any(si =>
-                    {
-                        return si.Name == storage.StorageController
-                            && si.StorageDeviceIDs.Any(sdi => sdi.PhysicalPath == storage.PhysicalPath);
-                    });
+                storagesSnapshot = new(_Storages);
+            }
 
-                    //Storage does not exist in current devices, it was removed
-                    if (!match)
+            //Prefer DriveNumber as stable identity across different PhysicalPath representations
+            //(e.g. \\?\scsi#... vs \\.\PhysicalDriveN).
+            var existingByDriveNumber = storagesSnapshot
+                .Where(s => s.DriveNumber >= 0)
+                .GroupBy(s => s.DriveNumber)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            //Build a unique set of currently detected drives (DriveNumber -> candidate StorageDevice)
+            var currentByDriveNumber = new Dictionary<int, (StorageController Controller, StorageDevice Device)>();
+            foreach (var device in currentDevices)
+            {
+                //Iterate drives for each storage controller
+                foreach (var sdi in device.StorageDeviceIDs)
+                {
+                    if (sdi.DriveNumber < 0)
                     {
-                        removed.Add(storage);
+                        continue;
+                    }
+
+                    //Skip duplicates
+                    if (!currentByDriveNumber.ContainsKey(sdi.DriveNumber))
+                    {
+                        currentByDriveNumber.Add(sdi.DriveNumber, (device, sdi));
                     }
                 }
             }
@@ -386,12 +375,10 @@ namespace DiskInfoToolkit
             //Check all PhysicalDrives for changes
             for (int i = 0; i < MaxDrives; ++i)
             {
-                Storage storage;
-
-                using (var guard = new LockGuard(_StorageLock))
+                //Skip already detected drives
+                if (currentByDriveNumber.ContainsKey(i))
                 {
-                    //Find storage if existing
-                    storage = _Storages.Find(s => s.DriveNumber == i);
+                    continue;
                 }
 
                 //Simple physical path
@@ -402,67 +389,74 @@ namespace DiskInfoToolkit
                 //Handle invalid
                 if (!SafeFileHandler.IsHandleValid(handle))
                 {
-                    //Storage existed previously
-                    if (storage != null)
-                    {
-                        //Verify that it's not already in removed list
-                        if (removed.Any(t => t.DriveNumber == i))
-                        {
-                            //Already in removed list; ignore
-                        }
-                        else //Not in removed list; add it
-                        {
-                            //Storage was removed
-                            removed.Add(storage);
-                        }
-                    }
-
-                    //Continue checking
                     continue;
                 }
 
                 //Handle valid -> close and continue
                 SafeFileHandler.CloseHandle(handle);
 
-                //Storage was added
-                if (storage == null)
+                var drive = new StorageDevice
                 {
-                    //Verify that it's not already in added list
-                    if (added.Any(t => t.Item2.Any(sd => sd.DriveNumber == i)))
-                    {
-                        //Already in added list; ignore
-                    }
-                    else //Not in added list; add it
-                    {
-                        var drive = new StorageDevice
-                        {
-                            DeviceID = string.Empty,
-                            HardwareID = string.Empty,
-                            PhysicalPath = path,
-                            DriveNumber = i,
-                        };
+                    DeviceID = string.Empty,
+                    HardwareID = string.Empty,
+                    PhysicalPath = path,
+                    DriveNumber = i,
+                };
 
-                        added.Add(new(new() { Name = string.Empty }, new() { drive }));
-                    }
+                //Add to current drives
+                currentByDriveNumber[i] = (new() { Name = string.Empty }, drive);
+            }
+
+            //Check for removed devices
+            var removed = new List<Storage>();
+            foreach (var existing in storagesSnapshot)
+            {
+                if (existing.DriveNumber < 0)
+                {
+                    continue;
+                }
+
+                //Not existing anymore
+                if (!currentByDriveNumber.ContainsKey(existing.DriveNumber))
+                {
+                    removed.Add(existing);
+                }
+            }
+
+            //Check for added devices
+            var added = new List<(StorageController Controller, StorageDevice Device)>();
+            foreach (var kvp in currentByDriveNumber)
+            {
+                //Not yet existing
+                if (!existingByDriveNumber.ContainsKey(kvp.Key))
+                {
+                    added.Add(kvp.Value);
                 }
             }
 
             //Handle added device[s]
             foreach (var add in added)
             {
-                foreach (var item in add.Item2)
+                var item = add.Device;
+
+                LogSimple.LogTrace($"Adding device with {nameof(item.PhysicalPath)} = '{item.PhysicalPath}'.");
+
+                var storage = new Storage(add.Controller.Name, item);
+
+                if (storage.IsValid)
                 {
-                    LogSimple.LogTrace($"Adding device with {nameof(item.PhysicalPath)} = '{item.PhysicalPath}'.");
-
-                    var storage = new Storage(add.Item1.Name, item);
-
-                    if (storage.IsValid)
+                    bool alreadyExisted;
+                    using (var guard = new LockGuard(_StorageLock))
                     {
-                        using (var guard = new LockGuard(_StorageLock))
+                        alreadyExisted = _Storages.Any(s => s.DriveNumber == storage.DriveNumber);
+                        if (!alreadyExisted)
                         {
                             _Storages.Add(storage);
                         }
+                    }
 
+                    if (!alreadyExisted)
+                    {
                         //Notify subscribers
                         StoragesChanged?.Invoke(new()
                         {
@@ -470,10 +464,10 @@ namespace DiskInfoToolkit
                             Storage = storage,
                         });
                     }
-                    else
-                    {
-                        LogSimple.LogTrace($"Cannot add device '{item.PhysicalPath}' - device is invalid.");
-                    }
+                }
+                else
+                {
+                    LogSimple.LogTrace($"Cannot add device '{item.PhysicalPath}' - device is invalid.");
                 }
             }
 
@@ -482,17 +476,21 @@ namespace DiskInfoToolkit
             {
                 LogSimple.LogTrace($"Removed device with {nameof(rem.PhysicalPath)} = '{rem.PhysicalPath}'.");
 
+                bool wasRemoved;
                 using (var guard = new LockGuard(_StorageLock))
                 {
-                    _Storages.Remove(rem);
+                    wasRemoved = _Storages.Remove(rem);
                 }
 
-                //Notify subscribers
-                StoragesChanged?.Invoke(new()
+                if (wasRemoved)
                 {
-                    StorageChangeIdentifier = StorageChangeIdentifier.Removed,
-                    Storage = rem,
-                });
+                    //Notify subscribers
+                    StoragesChanged?.Invoke(new()
+                    {
+                        StorageChangeIdentifier = StorageChangeIdentifier.Removed,
+                        Storage = rem,
+                    });
+                }
             }
         }
 
