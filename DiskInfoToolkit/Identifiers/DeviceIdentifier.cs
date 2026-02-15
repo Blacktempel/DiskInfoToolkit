@@ -38,7 +38,7 @@ namespace DiskInfoToolkit.Identifiers
                 {
                     if (storage.SiliconImageType != 0)
                     {
-                        DiskHandler.WakeUp(handle);
+                        DiskHandler.TryWakeUp(storage, handle);
 
                         if (DoIdentifyDeviceSi(storage, handle, 0, out identifyDevice))
                         {
@@ -50,7 +50,7 @@ namespace DiskInfoToolkit.Identifiers
                     {
                         if (!DoIdentifyDevicePd(storage, handle, 0xA0, out identifyDevice))
                         {
-                            DiskHandler.WakeUp(handle);
+                            DiskHandler.TryWakeUp(storage, handle);
 
                             if (!DoIdentifyDevicePd(storage, handle, 0xB0, out identifyDevice))
                             {
@@ -124,7 +124,7 @@ namespace DiskInfoToolkit.Identifiers
 
                 if (storage.DriveNumber >= 0)
                 {
-                    DiskHandler.WakeUp(handle);
+                    DiskHandler.TryWakeUp(storage, handle);
 
                     if (storage.BusType == StorageBusType.BusTypeUsb && storage.VendorID == (ushort)VendorIDs.USB_VENDOR_LOGITEC && storage.ProductID == 0x00D9)
                     {

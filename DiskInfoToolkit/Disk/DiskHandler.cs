@@ -77,7 +77,7 @@ namespace DiskInfoToolkit.Disk
                     case COMMAND_TYPE.CMD_TYPE_PHYSICAL_DRIVE:
                         if (!SmartAttributeHandler.GetSmartAttributePd(storage, handle, storage.Target, attributeBuffer, out smartAttributes))
                         {
-                            WakeUp(handle);
+                            TryWakeUp(storage, handle);
 
                             if (!SmartAttributeHandler.GetSmartAttributePd(storage, handle, storage.Target, attributeBuffer, out smartAttributes))
                             {
@@ -114,7 +114,7 @@ namespace DiskInfoToolkit.Disk
                     case COMMAND_TYPE.CMD_TYPE_CSMI_PHYSICAL_DRIVE:
                         if (!SmartAttributeHandler.GetSmartAttributePd(storage, handle, storage.Target, attributeBuffer, out smartAttributes))
                         {
-                            WakeUp(handle);
+                            TryWakeUp(storage, handle);
 
                             if (!SmartAttributeHandler.GetSmartAttributePd(storage, handle, storage.Target, attributeBuffer, out smartAttributes))
                             {
@@ -139,7 +139,7 @@ namespace DiskInfoToolkit.Disk
                     case COMMAND_TYPE.CMD_TYPE_PROLIFIC:
                     case COMMAND_TYPE.CMD_TYPE_JMICRON:
                     case COMMAND_TYPE.CMD_TYPE_CYPRESS:
-                        WakeUp(handle);
+                        TryWakeUp(storage, handle);
 
                         if (!SmartAttributeHandler.GetSmartAttributeSat(storage, handle, storage.Target, attributeBuffer, storage.Command, out smartAttributes))
                         {
@@ -149,7 +149,7 @@ namespace DiskInfoToolkit.Disk
                         storage.Smart.DiskStatus = CheckDiskStatus(storage);
                         break;
                     case COMMAND_TYPE.CMD_TYPE_NVME_REALTEK9220DP:
-                        WakeUp(handle);
+                        TryWakeUp(storage, handle);
 
                         if (RealtekMethods.RealtekSwitchMode(storage, handle, true, 1))
                         {
@@ -225,12 +225,15 @@ namespace DiskInfoToolkit.Disk
             }
         }
 
-        internal static void WakeUp(IntPtr handle)
+        internal static void TryWakeUp(Storage storage, IntPtr handle)
         {
-            var buffer = new byte[512];
+            if (storage.ForceWakeup)
+            {
+                var buffer = new byte[512];
 
-            Kernel32.SetFilePointerEx(handle, 0, IntPtr.Zero, 0);
-            Kernel32.ReadFile(handle, buffer, (uint)buffer.Length, out _, IntPtr.Zero);
+                Kernel32.SetFilePointerEx(handle, 0, IntPtr.Zero, 0);
+                Kernel32.ReadFile(handle, buffer, (uint)buffer.Length, out _, IntPtr.Zero);
+            }
         }
 
         internal static bool AddDiskNVMe(Storage storage, IntPtr handle, IdentifyDevice identifyDevice, COMMAND_TYPE command)

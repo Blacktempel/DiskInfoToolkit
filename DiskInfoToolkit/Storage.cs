@@ -115,6 +115,20 @@ namespace DiskInfoToolkit
 
         #region Properties
 
+        #region Special
+
+        /// <summary>
+        /// Gets the date and time when the entity was last updated, or null if the entity has not been updated yet.
+        /// </summary>
+        public DateTime? LastUpdate { get; internal set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the device should be forcibly awakened from a low-power state.
+        /// </summary>
+        public bool ForceWakeup { get; set; } = true;
+
+        #endregion
+
         #region Internal
 
         internal bool IsValid { get; private set; }
@@ -300,6 +314,8 @@ namespace DiskInfoToolkit
             UpdatePartitions(handle);
 
             SafeFileHandler.CloseHandle(handle);
+
+            LastUpdate = DateTime.Now;
         }
 
         public void Dispose()
