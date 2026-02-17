@@ -59,7 +59,7 @@ namespace DiskInfoToolkit.Smart
                         }
                         else
                         {
-                            LogSimple.LogTrace($"Attribute for '{storage.SmartKey}' is not implemented (ID: '{attr.ID,-3}' | Value: '{attr.RawValueULong,-20}').");
+                            LogSimple.LogDebug($"Attribute for '{storage.SmartKey}' is not implemented (ID: '{attr.ID,-3}' | Value: '{attr.RawValueULong,-20}').");
                         }
                     }
                 }

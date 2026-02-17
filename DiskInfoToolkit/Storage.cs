@@ -59,15 +59,15 @@ namespace DiskInfoToolkit
 
             if (!SafeFileHandler.IsHandleValid(handle))
             {
-                LogSimple.LogTrace($"Handle for {nameof(Storage)} is invalid.");
+                LogSimple.LogDebug($"Handle for {nameof(Storage)} is invalid.");
 
                 IsValid = false;
                 return;
             }
             else
             {
-                LogSimple.LogTrace($"Handle for {nameof(Storage)} is open.");
-                LogSimple.LogTrace($"{nameof(sdi.PhysicalPath)} = '{sdi.PhysicalPath}'.");
+                LogSimple.LogDebug($"Handle for {nameof(Storage)} is open.");
+                LogSimple.LogDebug($"{nameof(sdi.PhysicalPath)} = '{sdi.PhysicalPath}'.");
             }
 
             if (false == (IsValid = IdentifyStorageController()))

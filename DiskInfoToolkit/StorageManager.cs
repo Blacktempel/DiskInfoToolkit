@@ -180,7 +180,7 @@ namespace DiskInfoToolkit
         {
             storage = new Storage(storageController, storageDevice);
 
-            LogSimple.LogTrace($"{nameof(Storage)} {nameof(Storage.IsValid)} = {storage.IsValid}");
+            LogSimple.LogDebug($"{nameof(Storage)} {nameof(Storage.IsValid)} = {storage.IsValid}");
 
             return storage.IsValid;
         }
@@ -298,7 +298,7 @@ namespace DiskInfoToolkit
                         }
                         else
                         {
-                            LogSimple.LogTrace($"Received unhandled {nameof(devHdrArrive.dbch_devicetype)} = '{devHdrArrive.dbch_devicetype}'.");
+                            LogSimple.LogDebug($"Received unhandled {nameof(devHdrArrive.dbch_devicetype)} = '{devHdrArrive.dbch_devicetype}'.");
                         }
                         break;
                 }
@@ -439,7 +439,7 @@ namespace DiskInfoToolkit
             {
                 var item = add.Device;
 
-                LogSimple.LogTrace($"Adding device with {nameof(item.PhysicalPath)} = '{item.PhysicalPath}'.");
+                LogSimple.LogDebug($"Adding device with {nameof(item.PhysicalPath)} = '{item.PhysicalPath}'.");
 
                 var storage = new Storage(add.Controller.Name, item);
 
@@ -467,14 +467,14 @@ namespace DiskInfoToolkit
                 }
                 else
                 {
-                    LogSimple.LogTrace($"Cannot add device '{item.PhysicalPath}' - device is invalid.");
+                    LogSimple.LogDebug($"Cannot add device '{item.PhysicalPath}' - device is invalid.");
                 }
             }
 
             //Handle removed device[s]
             foreach (var rem in removed)
             {
-                LogSimple.LogTrace($"Removed device with {nameof(rem.PhysicalPath)} = '{rem.PhysicalPath}'.");
+                LogSimple.LogDebug($"Removed device with {nameof(rem.PhysicalPath)} = '{rem.PhysicalPath}'.");
 
                 bool wasRemoved;
                 using (var guard = new LockGuard(_StorageLock))
@@ -498,14 +498,14 @@ namespace DiskInfoToolkit
         {
             var driveLetter = deviceChangedModel.DriveLetter.Value;
 
-            LogSimple.LogTrace($"Adding {nameof(DEV_BROADCAST_VOLUME)} - drive letter is '{driveLetter}'.");
+            LogSimple.LogDebug($"Adding {nameof(DEV_BROADCAST_VOLUME)} - drive letter is '{driveLetter}'.");
 
             //Find device with drive letter
             var si = StorageDetector.GetStorageDevice($@"\\.\{driveLetter}:");
 
             if (si == null || si.StorageDeviceIDs.Count == 0)
             {
-                LogSimple.LogTrace($"Could not find '{driveLetter}' in '{nameof(StorageDetector)}'.");
+                LogSimple.LogDebug($"Could not find '{driveLetter}' in '{nameof(StorageDetector)}'.");
                 return;
             }
 
@@ -544,7 +544,7 @@ namespace DiskInfoToolkit
             }
             else
             {
-                LogSimple.LogTrace($"Cannot add device '{driveLetter}' - device is invalid.");
+                LogSimple.LogDebug($"Cannot add device '{driveLetter}' - device is invalid.");
             }
         }
 
@@ -552,13 +552,13 @@ namespace DiskInfoToolkit
         {
             var driveLetter = deviceChangedModel.DriveLetter.Value;
 
-            LogSimple.LogTrace($"Removing {nameof(DEV_BROADCAST_VOLUME)} - drive letter is '{driveLetter}'.");
+            LogSimple.LogDebug($"Removing {nameof(DEV_BROADCAST_VOLUME)} - drive letter is '{driveLetter}'.");
 
             var handle = SafeFileHandler.OpenHandle($@"\\.\{driveLetter}:");
 
             if (!SafeFileHandler.IsHandleValid(handle))
             {
-                LogSimple.LogTrace($"Could not open handle for '{driveLetter}'.");
+                LogSimple.LogDebug($"Could not open handle for '{driveLetter}'.");
                 return;
             }
 

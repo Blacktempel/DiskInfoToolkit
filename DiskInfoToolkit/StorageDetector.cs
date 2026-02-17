@@ -116,7 +116,7 @@ namespace DiskInfoToolkit
                                 var excluded = excludedStorages.Find(ex => string.Compare(ex, devicePath, StringComparison.OrdinalIgnoreCase) == 0);
                                 if (excluded != null)
                                 {
-                                    LogSimple.LogTrace($"Skipping and removing '{devicePath}' (is floppy).");
+                                    LogSimple.LogDebug($"Skipping and removing '{devicePath}' (is floppy).");
 
                                     //Excluded device
                                     si.StorageDeviceIDs.Remove(device);
@@ -256,7 +256,7 @@ namespace DiskInfoToolkit
                     string devicePath = Encoding.Unicode.GetString(detailData.DevicePath);
                     devicePath = NormalizeString(devicePath);
 
-                    LogSimple.LogTrace($"Adding '{devicePath}' to exclusion list (is floppy).");
+                    LogSimple.LogDebug($"Adding '{devicePath}' to exclusion list (is floppy).");
                     excludedStorages.Add(devicePath);
                 }
 
