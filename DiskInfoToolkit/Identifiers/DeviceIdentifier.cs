@@ -53,7 +53,7 @@ namespace DiskInfoToolkit.Identifiers
                         {
                             DiskHandler.TryWakeUp(storage, handle);
 
-                            if (!DoIdentifyDevicePd(storage, handle, 0xB0, out identifyDevice))
+                            if (!DoIdentifyDevicePd(storage, handle, 0xA0, out identifyDevice))
                             {
                                 if (!DoIdentifyDevicePd(storage, handle, 0xB0, out identifyDevice))
                                 {
