@@ -25,11 +25,13 @@ namespace ConsoleOutputTest
         public static void Log()
         {
             Log(string.Empty);
+            Console.WriteLine();
         }
 
         public static void Log(string message)
         {
             Logger.Instance.Add(LogLevel.Debug, message, DateTime.Now);
+            Console.WriteLine(message);
         }
 
         public void DoTest()
