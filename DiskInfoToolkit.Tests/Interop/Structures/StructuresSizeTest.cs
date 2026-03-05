@@ -45,6 +45,9 @@ namespace DiskInfoToolkit.Tests.Interop.Structures
 
             TestStructureSize<NVME_IDENTIFY_DEVICE>(4096);
 
+            TestStructureSize<NVME_PASS_THROUGH_IOCTL>(4248);
+            TestStructureSize<SRB_IO_CONTROL>(28);
+
             TestStructureSize<STORAGE_PROPERTY_QUERY>(12);
         }
 
