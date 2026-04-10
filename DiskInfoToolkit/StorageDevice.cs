@@ -9,6 +9,7 @@
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Monitoring;
 using DiskInfoToolkit.Smart;
+using DiskInfoToolkit.Utilities;
 
 namespace DiskInfoToolkit
 {
@@ -152,7 +153,10 @@ namespace DiskInfoToolkit
         /// <summary>
         /// Gets or sets a value indicating whether the device is currently powered on.
         /// </summary>
-        public bool? IsDevicePowerOn { get; set; }
+        public bool? IsDevicePowerOn
+        {
+            get { return StoragePowerStateHelper.TryGetDevicePowerState(DevicePath, out var isPoweredOn) ? isPoweredOn : null; }
+        }
 
         /// <summary>
         /// Gets or sets a value indicating whether disk is filtered.

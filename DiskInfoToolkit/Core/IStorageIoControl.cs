@@ -14,7 +14,6 @@ namespace DiskInfoToolkit.Core
     public interface IStorageIoControl
     {
         SafeFileHandle OpenDevice(string path, uint desiredAccess, uint shareMode, uint creationDisposition, uint flagsAndAttributes);
-        bool TryGetDevicePowerState(SafeFileHandle handle, out bool isPoweredOn);
         bool SendRawIoControl(SafeFileHandle handle, uint ioControlCode, byte[] inBuffer, byte[] outBuffer, out int bytesReturned);
         bool TryGetStorageDeviceDescriptor(SafeFileHandle handle, out StorageDeviceDescriptorInfo descriptor);
         bool TryGetStorageAdapterDescriptor(SafeFileHandle handle, out StorageAdapterDescriptorInfo descriptor);

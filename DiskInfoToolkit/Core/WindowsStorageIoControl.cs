@@ -26,18 +26,6 @@ namespace DiskInfoToolkit.Core
             return Kernel32Native.CreateFile(path, desiredAccess, shareMode, IntPtr.Zero, creationDisposition, flagsAndAttributes, IntPtr.Zero);
         }
 
-        public bool TryGetDevicePowerState(SafeFileHandle handle, out bool isPoweredOn)
-        {
-            isPoweredOn = false;
-
-            if (handle == null || handle.IsInvalid)
-            {
-                return false;
-            }
-
-            return Kernel32Native.GetDevicePowerState(handle, out isPoweredOn);
-        }
-
         public bool SendRawIoControl(SafeFileHandle handle, uint ioControlCode, byte[] inBuffer, byte[] outBuffer, out int bytesReturned)
         {
             return Kernel32Native.DeviceIoControl(

@@ -32,7 +32,7 @@
 
 		<!-- Status report (left side) -->
 		<ctrl:GridEx Grid.Row="1" Grid.Column="0"
-					 Grid.RowDefinitions="Auto,Auto,Auto,Auto"
+					 Grid.RowDefinitions="Auto,Auto,Auto,Auto,Auto"
 					 Grid.ColumnDefinitions="Auto, Auto">
 			<TextBlock Grid.Row="0" Grid.Column="0" Text="Health"
 					   IsVisible="{Binding Storage.Life, Converter={x:Static ObjectConverters.IsNotNull}}"/>
@@ -44,13 +44,30 @@
 			<TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Storage.Temperature, StringFormat='{}{0}°C'}"
 					   IsVisible="{Binding Storage.Temperature, Converter={x:Static ObjectConverters.IsNotNull}}"/>
 
-			<TextBlock Grid.Row="2" Grid.Column="0" Text="Health status"
+			<TextBlock Grid.Row="2" Grid.Column="0" Text="Power status"
+					   IsVisible="{Binding Storage.IsDevicePowerOn, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+			<TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Storage.IsDevicePowerOn}"
+					   IsVisible="{Binding Storage.IsDevicePowerOn, Converter={x:Static ObjectConverters.IsNotNull}}">
+				<Interaction.Behaviors>
+					<BehaviorCollection>
+						<DataTriggerBehavior Binding="{Binding Storage.IsDevicePowerOn}" ComparisonCondition="Equal" Value="True">
+							<ChangePropertyAction PropertyName="Text" Value="On"/>
+						</DataTriggerBehavior>
+						<DataTriggerBehavior Binding="{Binding Storage.IsDevicePowerOn}" ComparisonCondition="Equal" Value="False">
+							<ChangePropertyAction PropertyName="Text" Value="Off"/>
+						</DataTriggerBehavior>
+					</BehaviorCollection>
+				</Interaction.Behaviors>
+
+			</TextBlock>
+
+			<TextBlock Grid.Row="3" Grid.Column="0" Text="Health status"
 					   IsVisible="{Binding Storage.HealthStatus, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-			<TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Storage.HealthStatus}"
+			<TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Storage.HealthStatus}"
 					   IsVisible="{Binding Storage.HealthStatus, Converter={x:Static ObjectConverters.IsNotNull}}"
 					   Foreground="{Binding Storage.HealthStatus, Converter={StaticResource StorageHealthStatusToColorConverter}}"/>
 
-			<TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Storage.HealthStatusReason}"
+			<TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Storage.HealthStatusReason}"
 					   IsVisible="{Binding Storage.HealthStatusReason, Converter={x:Static ObjectConverters.IsNotNull}}"
 					   Foreground="{Binding Storage.HealthStatus, Converter={StaticResource StorageHealthStatusToColorConverter}}"/>
 		</ctrl:GridEx>

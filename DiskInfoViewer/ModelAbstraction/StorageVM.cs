@@ -66,6 +66,9 @@ namespace DiskInfoViewer.ModelAbstraction
         #region Volatile
 
         [ObservableProperty]
+        bool _isDevicePowerOn;
+
+        [ObservableProperty]
         StorageHealthStatus? _healthStatus;
 
         [ObservableProperty]
@@ -123,22 +126,37 @@ namespace DiskInfoViewer.ModelAbstraction
 
         public void Update()
         {
-            //Update disk
-            if (!Storage.Refresh(_Storage))
+            bool isDevicePowerOn = _Storage.IsDevicePowerOn.GetValueOrDefault();
+
+            //If device is powered off we don't want to cause a spin up by refreshing the disk,
+            //so we skip entire update
+            if (isDevicePowerOn)
             {
-                if (!_Initialized)
+                //Update disk
+                if (!Storage.Refresh(_Storage))
                 {
-                    _Initialized = true;
-                }
-                else
-                {
-                    //No changes
-                    return;
+                    if (!_Initialized)
+                    {
+                        _Initialized = true;
+                    }
+                    else
+                    {
+                        //No changes
+                        return;
+                    }
                 }
             }
 
             Dispatcher.UIThread.Invoke(() =>
             {
+                IsDevicePowerOn = isDevicePowerOn;
+
+                //Skip update as device is powered off
+                if (!IsDevicePowerOn)
+                {
+                    return;
+                }
+
                 //Update volatile properties
                 HealthStatus        = _Storage.HealthStatus;
                 HealthStatusReason  = _Storage.HealthStatusReason;

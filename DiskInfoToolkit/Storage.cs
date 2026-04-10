@@ -287,11 +287,6 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(device));
             }
 
-            if (device.IsDevicePowerOn == true)
-            {
-                return;
-            }
-
             var ioControl = new WindowsStorageIoControl();
 
             SafeFileHandle handle = ioControl.OpenDevice(

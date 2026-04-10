@@ -404,11 +404,6 @@ namespace DiskInfoToolkit.Core
 
             using (handle)
             {
-                if (_ioControl.TryGetDevicePowerState(handle, out var isDevicePowerOn))
-                {
-                    device.IsDevicePowerOn = isDevicePowerOn;
-                }
-
                 if (_ioControl.TryGetStorageDeviceDescriptor(handle, out var descriptor))
                 {
                     device.VendorName      = FirstNonEmpty(descriptor.VendorID, device.VendorName, string.Empty);
