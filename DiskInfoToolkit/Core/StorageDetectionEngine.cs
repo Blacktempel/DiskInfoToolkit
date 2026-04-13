@@ -333,15 +333,25 @@ namespace DiskInfoToolkit.Core
         {
             string service = device.Controller.Service ?? string.Empty;
 
+            //Intel RST hybrid controllers (iaStorAC, iaStorAVC, iaStorVD) manage both NVMe and SATA devices.
+            //SATA devices behind these controllers need the RAID probe path (CSMI/ATA), not NVMe pass-through.
+            if (StringUtil.EqualsAny(service,
+                    ControllerServiceNames.IaStorAC,
+                    ControllerServiceNames.IaStorAVC,
+                    ControllerServiceNames.IaStorVD))
+            {
+                device.ProbeStrategy = device.BusType == StorageBusType.Sata
+                    ? ProbeStrategy.RaidProbe
+                    : ProbeStrategy.PciNvmeProbe;
+                return;
+            }
+
             if (StringUtil.EqualsAny(service,
                     ControllerServiceNames.StorNvme,
                     ControllerServiceNames.Nvme,
                     ControllerServiceNames.Nvme2K,
                     ControllerServiceNames.IaNvme,
                     ControllerServiceNames.IaVroc,
-                    ControllerServiceNames.IaStorAC,
-                    ControllerServiceNames.IaStorAVC,
-                    ControllerServiceNames.IaStorVD,
                     ControllerServiceNames.MtInvme,
                     ControllerServiceNames.SecNvme))
             {
@@ -365,10 +375,7 @@ namespace DiskInfoToolkit.Core
              || StringUtil.EqualsAny(service,
                     ControllerServiceNames.MegaSas,
                     ControllerServiceNames.IaStorA,
-                    ControllerServiceNames.IaStorAC,
                     ControllerServiceNames.IaStorAV,
-                    ControllerServiceNames.IaStorAVC,
-                    ControllerServiceNames.IaStorVD,
                     ControllerServiceNames.IaVroc))
             {
                 device.ProbeStrategy = ProbeStrategy.RaidProbe;
