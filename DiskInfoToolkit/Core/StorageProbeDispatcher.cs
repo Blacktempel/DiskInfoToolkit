@@ -148,13 +148,6 @@ namespace DiskInfoToolkit.Core
                 }
             }
 
-            //Probe for standard NVMe data, as this is the most likely to be supported on NVMe devices and can provide data if it works
-            if (NvmeProbe.TryPopulateStandardNvmeData(device, ioControl))
-            {
-                ProbeTraceRecorder.Add(device, "NVMe path: standard NVMe query succeeded.");
-                return;
-            }
-
             //Probe for Intel NVMe pass-through data
             if (IntelNvmeProbe.TryPopulateIntelNvmeData(device, ioControl))
             {
@@ -179,6 +172,13 @@ namespace DiskInfoToolkit.Core
                     ProbeTraceRecorder.Add(device, "NVMe path: Intel RAID/VROC multi-signature sweep succeeded.");
                     return;
                 }
+            }
+
+            //Probe for standard NVMe data, as this is the most likely to be supported on NVMe devices and can provide data if it works
+            if (NvmeProbe.TryPopulateStandardNvmeData(device, ioControl))
+            {
+                ProbeTraceRecorder.Add(device, "NVMe path: standard NVMe query succeeded.");
+                return;
             }
 
             //Try samsung NVMe SCSI fallback
