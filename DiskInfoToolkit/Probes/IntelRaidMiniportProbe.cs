@@ -13,6 +13,8 @@ using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
 
+using static DiskInfoToolkit.Constants.IoControlCodes;
+
 namespace DiskInfoToolkit.Probes
 {
     public static class IntelRaidMiniportProbe
@@ -203,13 +205,14 @@ namespace DiskInfoToolkit.Probes
             request.Srb.HeaderLength = (uint)Marshal.SizeOf<SRB_IO_CONTROL>();
             request.Srb.Signature = signature;
             request.Srb.Timeout = 10;
+            request.Srb.ControlCode = IOCTL_INTEL_NVME_PASS_THROUGH;
             request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
 
             request.Payload.Version = 1;
             request.Payload.PathID = device.Scsi.PathID.HasValue ? device.Scsi.PathID.Value : (byte)0;
             request.Payload.TargetID = device.Scsi.TargetID.HasValue ? device.Scsi.TargetID.Value : (byte)0;
             request.Payload.Lun = device.Scsi.Lun.HasValue ? device.Scsi.Lun.Value : (byte)0;
-            request.Payload.ParameterBufferLength = BufferLength;
+            request.Payload.ParameterBufferLength = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + Marshal.SizeOf<SRB_IO_CONTROL>());
             request.Payload.ReturnBufferLength = BufferLength;
             request.Payload.Cmd.CDW0 = IntelNvmeConstants.MakeCdw0(NvmeAdminIdentifyOpcode, 0);
             request.Payload.Cmd.NSID = 0;
@@ -238,13 +241,14 @@ namespace DiskInfoToolkit.Probes
             request.Srb.HeaderLength = (uint)Marshal.SizeOf<SRB_IO_CONTROL>();
             request.Srb.Signature = signature;
             request.Srb.Timeout = 10;
+            request.Srb.ControlCode = IOCTL_INTEL_NVME_PASS_THROUGH;
             request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
 
             request.Payload.Version = 1;
             request.Payload.PathID = device.Scsi.PathID.HasValue ? device.Scsi.PathID.Value : (byte)0;
             request.Payload.TargetID = device.Scsi.TargetID.HasValue ? device.Scsi.TargetID.Value : (byte)0;
             request.Payload.Lun = device.Scsi.Lun.HasValue ? device.Scsi.Lun.Value : (byte)0;
-            request.Payload.ParameterBufferLength = BufferLength;
+            request.Payload.ParameterBufferLength = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + Marshal.SizeOf<SRB_IO_CONTROL>());
             request.Payload.ReturnBufferLength = BufferLength;
             request.Payload.Cmd.CDW0 = IntelNvmeConstants.MakeCdw0(NvmeAdminIdentifyOpcode, 0);
             request.Payload.Cmd.NSID = 1;
@@ -273,13 +277,14 @@ namespace DiskInfoToolkit.Probes
             request.Srb.HeaderLength = (uint)Marshal.SizeOf<SRB_IO_CONTROL>();
             request.Srb.Signature = signature;
             request.Srb.Timeout = 10;
+            request.Srb.ControlCode = IOCTL_INTEL_NVME_PASS_THROUGH;
             request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
 
             request.Payload.Version = 1;
             request.Payload.PathID = device.Scsi.PathID.HasValue ? device.Scsi.PathID.Value : (byte)0;
             request.Payload.TargetID = device.Scsi.TargetID.HasValue ? device.Scsi.TargetID.Value : (byte)0;
             request.Payload.Lun = device.Scsi.Lun.HasValue ? device.Scsi.Lun.Value : (byte)0;
-            request.Payload.ParameterBufferLength = BufferLength;
+            request.Payload.ParameterBufferLength = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + Marshal.SizeOf<SRB_IO_CONTROL>());
             request.Payload.ReturnBufferLength = BufferLength;
             request.Payload.Cmd.CDW0 = IntelNvmeConstants.MakeCdw0(NvmeAdminGetLogPageOpcode, 0);
             request.Payload.Cmd.NSID = 0xFFFFFFFF;
