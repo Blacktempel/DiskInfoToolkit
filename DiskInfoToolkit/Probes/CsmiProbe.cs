@@ -180,9 +180,15 @@ namespace DiskInfoToolkit.Probes
             }
 
             int selectedIndex = -1;
+            bool hasTargetId = device.Scsi.TargetID.HasValue;
             for (int i = 0; i < count && i < phyInfoBuffer.Information.Phy.Length; ++i)
             {
                 var candidate = phyInfoBuffer.Information.Phy[i];
+                if (hasTargetId && candidate.bPortIdentifier != device.Scsi.TargetID.Value)
+                {
+                    continue;
+                }
+
                 if (IsAtaCapablePhy(candidate))
                 {
                     selectedIndex = i;
@@ -192,6 +198,11 @@ namespace DiskInfoToolkit.Probes
 
             if (selectedIndex < 0)
             {
+                if (hasTargetId)
+                {
+                    return false;
+                }
+
                 selectedIndex = 0;
             }
 
@@ -269,12 +280,23 @@ namespace DiskInfoToolkit.Probes
                 return false;
             }
 
+            bool hasTargetId = device.Scsi.TargetID.HasValue;
             for (int i = 0; i < count && i < phyInfoBuffer.Information.Phy.Length; ++i)
             {
                 var phy = phyInfoBuffer.Information.Phy[i];
-                if (!IsAtaCapablePhy(phy))
+                if (hasTargetId && phy.bPortIdentifier != device.Scsi.TargetID.Value)
                 {
                     continue;
+                }
+
+                if (!IsAtaCapablePhy(phy))
+                {
+                    if (!hasTargetId)
+                    {
+                        continue;
+                    }
+
+                    return false;
                 }
 
                 if (SendAtaCommand(handle, ioControl, phy, IdentifyDeviceCommand, 0x00, 0x00, SectorBytes, out var identifyData))
