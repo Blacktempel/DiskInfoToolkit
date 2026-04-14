@@ -332,54 +332,57 @@ namespace DiskInfoToolkit.Core
         private static void SelectProbeStrategy(StorageDevice device)
         {
             string service = device.Controller.Service ?? string.Empty;
+            string controllerClass = device.Controller.Class ?? string.Empty;
 
-            //Intel RST hybrid controllers (iaStorAC, iaStorAVC, iaStorVD) manage both NVMe and SATA devices.
-            //Only devices explicitly reported as NVMe should use NVMe pass-through probing.
-            //All other bus types (Sata, Ata, etc.) use RAID probing.
-            if (StringUtil.EqualsAny(service,
-                    ControllerServiceNames.IaStorAC,
-                    ControllerServiceNames.IaStorAVC,
-                    ControllerServiceNames.IaStorVD))
-            {
-                device.ProbeStrategy = device.BusType == StorageBusType.Nvme
-                    ? ProbeStrategy.PciNvmeProbe
-                    : ProbeStrategy.RaidProbe;
-                return;
-            }
-
-            if (StringUtil.EqualsAny(service,
-                    ControllerServiceNames.StorNvme,
-                    ControllerServiceNames.Nvme,
-                    ControllerServiceNames.Nvme2K,
-                    ControllerServiceNames.IaNvme,
-                    ControllerServiceNames.IaVroc,
-                    ControllerServiceNames.MtInvme,
-                    ControllerServiceNames.SecNvme))
-            {
-                device.ProbeStrategy = ProbeStrategy.PciNvmeProbe;
-                return;
-            }
-
-            if (StringUtil.EqualsAny(service, ControllerServiceGroups.UsbMassStorageServices) || string.Equals(device.Controller.Class, ControllerClassNames.Usb, StringComparison.OrdinalIgnoreCase))
+            if (StringUtil.EqualsAny(service, ControllerServiceGroups.UsbMassStorageServices)
+                || controllerClass.Equals(ControllerClassNames.Usb, StringComparison.OrdinalIgnoreCase)
+                || device.TransportKind == StorageTransportKind.Usb
+                || device.BusType == StorageBusType.Usb)
             {
                 device.ProbeStrategy = ProbeStrategy.UsbProbe;
                 return;
             }
 
-            if (StringUtil.EqualsAny(service, ControllerServiceGroups.SdControllerServices))
+            if (StringUtil.EqualsAny(service, ControllerServiceGroups.SdControllerServices)
+                || device.TransportKind == StorageTransportKind.Sd
+                || device.TransportKind == StorageTransportKind.Mmc
+                || device.BusType == StorageBusType.Sd
+                || device.BusType == StorageBusType.Mmc)
             {
                 device.ProbeStrategy = ProbeStrategy.SdMmcProbe;
                 return;
             }
 
-            if (StringUtil.StartsWithAny(service, ControllerServiceGroups.SasServicePrefixes)
-             || StringUtil.EqualsAny(service,
-                    ControllerServiceNames.MegaSas,
-                    ControllerServiceNames.IaStorA,
-                    ControllerServiceNames.IaStorAV,
-                    ControllerServiceNames.IaVroc))
+            //Intel RST / VROC controller stacks can sit in front of both NVMe and SATA media.
+            //The RAID dispatcher already contains the Intel miniport, VROC, NVMe pass-through,
+            //and CSMI/SATA paths, so routing these services directly to the NVMe dispatcher is too early.
+            if (StringUtil.EqualsAny(service, ControllerServiceGroups.IntelRstControllerServices)
+                || StringUtil.EqualsAny(service, ControllerServiceGroups.IntelRaidProbeServices)
+                || device.Controller.Family == StorageControllerFamily.IntelRst
+                || device.Controller.Family == StorageControllerFamily.IntelVroc)
             {
                 device.ProbeStrategy = ProbeStrategy.RaidProbe;
+                return;
+            }
+
+            if (StringUtil.StartsWithAny(service, ControllerServiceGroups.SasServicePrefixes)
+                || StringUtil.EqualsAny(service, ControllerServiceNames.MegaSas)
+                || controllerClass.Equals(ControllerClassNames.Raid, StringComparison.OrdinalIgnoreCase)
+                || controllerClass.Equals(ControllerClassNames.Sas, StringComparison.OrdinalIgnoreCase)
+                || device.TransportKind == StorageTransportKind.Raid
+                || device.TransportKind == StorageTransportKind.Sas
+                || device.BusType == StorageBusType.RAID
+                || device.BusType == StorageBusType.Sas)
+            {
+                device.ProbeStrategy = ProbeStrategy.RaidProbe;
+                return;
+            }
+
+            if (StringUtil.EqualsAny(service, ControllerServiceGroups.NvmeControllerServices)
+                || device.TransportKind == StorageTransportKind.Nvme
+                || device.BusType == StorageBusType.Nvme)
+            {
+                device.ProbeStrategy = ProbeStrategy.PciNvmeProbe;
                 return;
             }
 
