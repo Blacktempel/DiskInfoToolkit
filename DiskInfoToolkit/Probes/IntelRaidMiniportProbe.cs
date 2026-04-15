@@ -13,8 +13,6 @@ using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
 
-using static DiskInfoToolkit.Constants.IoControlCodes;
-
 namespace DiskInfoToolkit.Probes
 {
     public static class IntelRaidMiniportProbe
@@ -205,7 +203,7 @@ namespace DiskInfoToolkit.Probes
             request.Srb.HeaderLength = (uint)Marshal.SizeOf<SRB_IO_CONTROL>();
             request.Srb.Signature = signature;
             request.Srb.Timeout = 10;
-            request.Srb.ControlCode = IOCTL_INTEL_NVME_PASS_THROUGH;
+            request.Srb.ControlCode = IoControlCodes.IOCTL_INTEL_NVME_PASS_THROUGH;
             request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
 
             request.Payload.Version = 1;
@@ -241,7 +239,7 @@ namespace DiskInfoToolkit.Probes
             request.Srb.HeaderLength = (uint)Marshal.SizeOf<SRB_IO_CONTROL>();
             request.Srb.Signature = signature;
             request.Srb.Timeout = 10;
-            request.Srb.ControlCode = IOCTL_INTEL_NVME_PASS_THROUGH;
+            request.Srb.ControlCode = IoControlCodes.IOCTL_INTEL_NVME_PASS_THROUGH;
             request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
 
             request.Payload.Version = 1;
@@ -277,7 +275,7 @@ namespace DiskInfoToolkit.Probes
             request.Srb.HeaderLength = (uint)Marshal.SizeOf<SRB_IO_CONTROL>();
             request.Srb.Signature = signature;
             request.Srb.Timeout = 10;
-            request.Srb.ControlCode = IOCTL_INTEL_NVME_PASS_THROUGH;
+            request.Srb.ControlCode = IoControlCodes.IOCTL_INTEL_NVME_PASS_THROUGH;
             request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
 
             request.Payload.Version = 1;
