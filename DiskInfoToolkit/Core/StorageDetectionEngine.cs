@@ -71,10 +71,6 @@ namespace DiskInfoToolkit.Core
 
             foreach (var node in diskNodes)
             {
-#if DEBUG
-                sw.Restart();
-#endif
-
                 //Create base device and map properties from PnP enumeration
                 StorageDevice device = CreateBaseDevice(node);
 
@@ -87,6 +83,24 @@ namespace DiskInfoToolkit.Core
                 AttachStandardStorageProperties(device);
                 SelectProbeStrategy(device);
 
+                result.Add(device);
+            }
+
+            IntelRstSataMemberEnumerator.Enumerate(result, _ioControl, out var detectedRstSataMembers);
+
+            foreach (var member in detectedRstSataMembers)
+            {
+                result.AddRange(member.Volumes);
+            }
+
+            IntelRstSataMemberEnumerator.RemoveAggregateVolumes(result, detectedRstSataMembers);
+
+            foreach (var device in result)
+            {
+#if DEBUG
+                sw.Restart();
+#endif
+
                 if (!device.IsFiltered)
                 {
                     //Probe device with appropriate strategy based on controller service and class
@@ -97,8 +111,6 @@ namespace DiskInfoToolkit.Core
                 sw.Stop();
                 LogSimple.LogTrace($"Processed device '{device.DisplayName}' in {sw.ElapsedMilliseconds} ms.");
 #endif
-
-                result.Add(device);
             }
 
             return result;

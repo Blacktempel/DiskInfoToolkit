@@ -165,8 +165,7 @@ namespace DiskInfoToolkit.Probes
                 return false;
             }
 
-            var phyInfoBuffer = CSMI_SAS_PHY_INFO_BUFFER.CreateDefault();
-            if (!SendCsmiMiniport(handle, ioControl, CsmiGetPhyInfo, CsmiSasSignature, ref phyInfoBuffer))
+            if (!TryGetPhyInfoFromHandle(ioControl, handle, out var phyInfoBuffer))
             {
                 return false;
             }
@@ -268,8 +267,7 @@ namespace DiskInfoToolkit.Probes
                 return false;
             }
 
-            var phyInfoBuffer = CSMI_SAS_PHY_INFO_BUFFER.CreateDefault();
-            if (!SendCsmiMiniport(handle, ioControl, CsmiGetPhyInfo, CsmiSasSignature, ref phyInfoBuffer))
+            if (!TryGetPhyInfoFromHandle(ioControl, handle, out var phyInfoBuffer))
             {
                 return false;
             }
@@ -414,13 +412,28 @@ namespace DiskInfoToolkit.Probes
 
         #endregion
 
-        #region Private
+        #region Internal
 
-        private static bool IsAtaCapablePhy(CSMI_SAS_PHY_ENTITY phy)
+        internal static bool TryGetPhyInfoFromHandle(IStorageIoControl ioControl, SafeFileHandle handle, out CSMI_SAS_PHY_INFO_BUFFER phyInfoBuffer)
+        {
+            phyInfoBuffer = CSMI_SAS_PHY_INFO_BUFFER.CreateDefault();
+            if (ioControl == null || handle == null || handle.IsInvalid)
+            {
+                return false;
+            }
+
+            return SendCsmiMiniport(handle, ioControl, CsmiGetPhyInfo, CsmiSasSignature, ref phyInfoBuffer);
+        }
+
+        internal static bool IsAtaCapablePhy(CSMI_SAS_PHY_ENTITY phy)
         {
             return (phy.Attached.bTargetPortProtocol & CsmiProtocolSata) != 0
                 || (phy.Attached.bTargetPortProtocol & CsmiProtocolStp) != 0;
         }
+
+        #endregion
+
+        #region Private
 
         private static string FormatSasAddress(byte[] sasAddress)
         {
