@@ -358,16 +358,34 @@ namespace DiskInfoToolkit.Core
                 }
             }
 
-            //Try various RAID-specific paths for Intel RAID/VROC controllers
-            if (TryIntelRaidControllerPaths(device, ioControl))
-            {
-                return;
-            }
+            bool preferCsmiAtaPath = ShouldPreferCsmiAtaRaidPath(device);
 
-            //Try CSMI paths, which can work on a variety of RAID controllers that support the CSMI interface
-            if (TryCsmiRaidControllerPaths(device, ioControl))
+            //For synthetic CSMI SATA members we must prefer the CSMI ATA/STP path before any Intel NVMe-style RAID probing
+            if (preferCsmiAtaPath)
             {
-                return;
+                if (TryCsmiRaidControllerPaths(device, ioControl))
+                {
+                    return;
+                }
+
+                if (TryIntelRaidControllerPaths(device, ioControl))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                //Try various RAID-specific paths for Intel RAID/VROC controllers
+                if (TryIntelRaidControllerPaths(device, ioControl))
+                {
+                    return;
+                }
+
+                //Try CSMI paths, which can work on a variety of RAID controllers that support the CSMI interface
+                if (TryCsmiRaidControllerPaths(device, ioControl))
+                {
+                    return;
+                }
             }
 
             //Try composite SCSI port paths, which can work on some RAID controllers that expose RAID metadata through SCSI port queries
@@ -433,6 +451,38 @@ namespace DiskInfoToolkit.Core
             }
 
             ProbeTraceRecorder.Add(device, "RAID path: all implemented RAID probe attempts finished without a definitive controller-specific success.");
+        }
+
+        private static bool ShouldPreferCsmiAtaRaidPath(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            bool isIntelController = device.Controller.Family == StorageControllerFamily.IntelRst
+                                  || device.Controller.Family == StorageControllerFamily.IntelVroc;
+
+            if (!isIntelController)
+            {
+                return false;
+            }
+
+            bool hasConcreteCsmiMemberIdentity = device.Csmi.PortIdentifier.HasValue
+                                              && device.Csmi.AttachedPhyIdentifier.HasValue;
+
+            if (!hasConcreteCsmiMemberIdentity)
+            {
+                return false;
+            }
+
+            bool isAtaTarget = (device.Csmi.TargetProtocol.GetValueOrDefault() & 0x01) != 0
+                            || (device.Csmi.TargetProtocol.GetValueOrDefault() & 0x04) != 0
+                            || device.BusType == StorageBusType.Sata
+                            || device.BusType == StorageBusType.Ata
+                            || device.TransportKind == StorageTransportKind.Ata;
+
+            return isAtaTarget;
         }
 
         private static bool TryIntelRaidControllerPaths(StorageDevice device, IStorageIoControl ioControl)

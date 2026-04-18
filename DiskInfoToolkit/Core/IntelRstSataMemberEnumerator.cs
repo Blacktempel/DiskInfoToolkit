@@ -31,7 +31,12 @@ namespace DiskInfoToolkit.Core
             //Build a set of existing member keys to avoid duplicates
             foreach (var device in devices)
             {
-                var existingMemberKey = BuildMemberKey(device.Controller, device.Scsi.PortNumber, device.Scsi.TargetID);
+                if (!ShouldReserveExistingMemberKey(device))
+                {
+                    continue;
+                }
+
+                var existingMemberKey = BuildMemberKey(device.Scsi.PortNumber, device.Scsi.TargetID);
                 if (!string.IsNullOrWhiteSpace(existingMemberKey))
                 {
                     existingMemberKeys.Add(existingMemberKey);
@@ -41,7 +46,7 @@ namespace DiskInfoToolkit.Core
             //Group devices by controller and SCSI port number so the CSMI topology is queried only once per controller path
             var controllerGroups = devices
                 .Where(IsControllerCandidate)
-                .GroupBy(device => BuildControllerGroupKey(device))
+                .GroupBy(BuildControllerGroupKey)
                 .Where(group => !string.IsNullOrWhiteSpace(group.Key));
 
             foreach (var controllerGroup in controllerGroups)
@@ -87,15 +92,23 @@ namespace DiskInfoToolkit.Core
                             continue;
                         }
 
-                        var memberKey = BuildMemberKey(representative.Controller, representative.Scsi.PortNumber, phy.bPortIdentifier);
+                        var memberKey = BuildMemberKey(representative.Scsi.PortNumber, phy.bPortIdentifier);
                         if (string.IsNullOrWhiteSpace(memberKey) || existingMemberKeys.Contains(memberKey))
                         {
                             continue;
                         }
 
-                        var memberDevice = CreateMemberDevice(representative, phy.bPortIdentifier, scsiPortPath);
+                        if (!CsmiProbe.TryReadAtaIdentifyFromHandle(ioControl, handle, phy, out var identifyData))
+                        {
+                            ProbeTraceRecorder.Add(representative, $"Skipping synthetic Intel RST SATA member for CSMI phy {phy.bPortIdentifier} on port {representative.Scsi.PortNumber.Value} because ATA IDENTIFY did not succeed.");
+                            continue;
+                        }
 
-                        ProbeTraceRecorder.Add(memberDevice, $"Synthetic Intel RST SATA member created from CSMI phy {phy.bPortIdentifier} on port {representative.Scsi.PortNumber.Value}.");
+                        var memberDevice = CreateMemberDevice(representative, phy.bPortIdentifier, scsiPortPath);
+                        CsmiProbe.ApplyPhyInfo(memberDevice, phy);
+                        CsmiProbe.ApplyAtaIdentify(memberDevice, identifyData);
+
+                        ProbeTraceRecorder.Add(memberDevice, $"Synthetic Intel RST SATA member created from CSMI phy {phy.bPortIdentifier} on port {representative.Scsi.PortNumber.Value} after ATA IDENTIFY validation.");
 
                         members.Add(memberDevice);
                         existingMemberKeys.Add(memberKey);
@@ -208,6 +221,41 @@ namespace DiskInfoToolkit.Core
                     ControllerServiceGroups.IntelRaidProbeServices);
         }
 
+        private static bool ShouldReserveExistingMemberKey(StorageDevice device)
+        {
+            if (device == null || !device.Scsi.PortNumber.HasValue || !device.Scsi.TargetID.HasValue)
+            {
+                return false;
+            }
+
+            if (device.Controller.Family == StorageControllerFamily.IntelRst || device.Controller.Family == StorageControllerFamily.IntelVroc)
+            {
+                if (UsesRAIDPath(device))
+                {
+                    return false;
+                }
+
+                return !LooksLikeExistingAggregateRaidVolume(device);
+            }
+
+            return true;
+        }
+
+        private static bool LooksLikeExistingAggregateRaidVolume(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            var combinedName = BuildCombinedDeviceName(device);
+
+            bool hasVolumeHint = HasVolumeHint(combinedName);
+            bool hasRaidHint = HasRAIDHint(combinedName);
+
+            return UsesRAIDPath(device) && (hasVolumeHint || hasRaidHint);
+        }
+
         private static bool LooksLikeAggregateRaidVolume(StorageDevice device, List<StorageDevice> members)
         {
             if (device == null || members == null || members.Count <= 1)
@@ -215,16 +263,7 @@ namespace DiskInfoToolkit.Core
                 return false;
             }
 
-            var memberTargets = new HashSet<byte>(members
-                .Where(member => member?.Scsi.TargetID.HasValue == true)
-                .Select(member => member.Scsi.TargetID.Value));
-
-            if (device.Scsi.TargetID.HasValue && memberTargets.Contains(device.Scsi.TargetID.Value))
-            {
-                return false;
-            }
-
-            return ScoreAggregateRaidVolumeCandidate(device, memberTargets) > 0;
+            return ScoreAggregateRaidVolumeCandidate(device, null) > 0;
         }
 
         private static StorageDevice SelectAggregateVolumeCandidate(List<StorageDevice> controllerDevices, List<StorageDevice> members)
@@ -268,19 +307,10 @@ namespace DiskInfoToolkit.Core
                 return 0;
             }
 
-            if (device.Scsi.TargetID.HasValue && memberTargets != null && memberTargets.Contains(device.Scsi.TargetID.Value))
-            {
-                return 0;
-            }
-
             var combinedName = BuildCombinedDeviceName(device);
 
-            bool hasVolumeHint = combinedName.IndexOf("volume"      , StringComparison.OrdinalIgnoreCase) >= 0
-                              || combinedName.IndexOf("array"       , StringComparison.OrdinalIgnoreCase) >= 0
-                              || combinedName.IndexOf("virtual disk", StringComparison.OrdinalIgnoreCase) >= 0
-                              || combinedName.IndexOf("logical disk", StringComparison.OrdinalIgnoreCase) >= 0;
-
-            bool hasRaidHint = combinedName.IndexOf("raid", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool hasVolumeHint = HasVolumeHint(combinedName);
+            bool hasRaidHint = HasRAIDHint(combinedName);
 
             if (!hasVolumeHint && !hasRaidHint)
             {
@@ -322,6 +352,27 @@ namespace DiskInfoToolkit.Core
             return score;
         }
 
+        private static bool HasVolumeHint(string combinedName)
+        {
+            return combinedName.IndexOf("volume"      , StringComparison.OrdinalIgnoreCase) >= 0
+                || combinedName.IndexOf("array"       , StringComparison.OrdinalIgnoreCase) >= 0
+                || combinedName.IndexOf("virtual disk", StringComparison.OrdinalIgnoreCase) >= 0
+                || combinedName.IndexOf("logical disk", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool HasRAIDHint(string combinedName)
+        {
+            return combinedName.IndexOf("raid", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool UsesRAIDPath(StorageDevice device)
+        {
+            return device.ProbeStrategy == ProbeStrategy.RaidProbe
+                || device.TransportKind == StorageTransportKind.Raid
+                || device.BusType == StorageBusType.RAID
+                || device.BusType == StorageBusType.Scsi;
+        }
+
         private static string BuildCombinedDeviceName(StorageDevice device)
         {
             if (device == null)
@@ -339,39 +390,17 @@ namespace DiskInfoToolkit.Core
                 return string.Empty;
             }
 
-            string controllerKey = StringUtil.FirstNonEmpty(
-                device.Controller.Identifier,
-                device.Controller.HardwareID,
-                device.Controller.Service,
-                device.Controller.Name);
-
-            if (string.IsNullOrWhiteSpace(controllerKey))
-            {
-                return string.Empty;
-            }
-
-            return $"{controllerKey}|{device.Scsi.PortNumber.Value}";
+            return StoragePathBuilder.BuildScsiPortPath(device.Scsi.PortNumber.Value);
         }
 
-        private static string BuildMemberKey(StorageControllerInfo controller, byte? portNumber, byte? targetId)
+        private static string BuildMemberKey(byte? portNumber, byte? targetId)
         {
-            if (controller == null || !portNumber.HasValue || !targetId.HasValue)
+            if (!portNumber.HasValue || !targetId.HasValue)
             {
                 return string.Empty;
             }
 
-            string controllerKey = StringUtil.FirstNonEmpty(
-                controller.Identifier,
-                controller.HardwareID,
-                controller.Service,
-                controller.Name);
-
-            if (string.IsNullOrWhiteSpace(controllerKey))
-            {
-                return string.Empty;
-            }
-
-            return $"{controllerKey}|{portNumber.Value}|{targetId.Value}";
+            return $"{portNumber.Value}|{targetId.Value}";
         }
 
         #endregion

@@ -179,11 +179,11 @@ namespace DiskInfoToolkit.Probes
             }
 
             int selectedIndex = -1;
-            bool hasTargetId = device.Scsi.TargetID.HasValue;
+            bool hasRequestedPhy = HasRequestedPhy(device);
             for (int i = 0; i < count && i < phyInfoBuffer.Information.Phy.Length; ++i)
             {
                 var candidate = phyInfoBuffer.Information.Phy[i];
-                if (hasTargetId && candidate.bPortIdentifier != device.Scsi.TargetID.Value)
+                if (!MatchesRequestedPhy(device, candidate))
                 {
                     continue;
                 }
@@ -197,7 +197,7 @@ namespace DiskInfoToolkit.Probes
 
             if (selectedIndex < 0)
             {
-                if (hasTargetId)
+                if (hasRequestedPhy)
                 {
                     return false;
                 }
@@ -206,12 +206,7 @@ namespace DiskInfoToolkit.Probes
             }
 
             var phy = phyInfoBuffer.Information.Phy[selectedIndex];
-            device.Csmi.PortIdentifier = phy.bPortIdentifier;
-            device.Csmi.AttachedPhyIdentifier = phy.Attached.bPhyIdentifier;
-            device.Csmi.NegotiatedLinkRate = phy.bNegotiatedLinkRate;
-            device.Csmi.NegotiatedLinkRateName = GetLinkRateName(phy.bNegotiatedLinkRate);
-            device.Csmi.AttachedSasAddress = FormatSasAddress(phy.Attached.bSASAddress);
-            device.Csmi.TargetProtocol = phy.Attached.bTargetPortProtocol;
+            ApplyPhyInfo(device, phy);
 
             if ((phy.Attached.bTargetPortProtocol & CsmiProtocolStp) != 0)
             {
@@ -278,18 +273,18 @@ namespace DiskInfoToolkit.Probes
                 return false;
             }
 
-            bool hasTargetId = device.Scsi.TargetID.HasValue;
+            bool hasRequestedPhy = HasRequestedPhy(device);
             for (int i = 0; i < count && i < phyInfoBuffer.Information.Phy.Length; ++i)
             {
                 var phy = phyInfoBuffer.Information.Phy[i];
-                if (hasTargetId && phy.bPortIdentifier != device.Scsi.TargetID.Value)
+                if (!MatchesRequestedPhy(device, phy))
                 {
                     continue;
                 }
 
                 if (!IsAtaCapablePhy(phy))
                 {
-                    if (!hasTargetId)
+                    if (!hasRequestedPhy)
                     {
                         continue;
                     }
@@ -425,15 +420,88 @@ namespace DiskInfoToolkit.Probes
             return SendCsmiMiniport(handle, ioControl, CsmiGetPhyInfo, CsmiSasSignature, ref phyInfoBuffer);
         }
 
+        internal static bool TryReadAtaIdentifyFromHandle(IStorageIoControl ioControl, SafeFileHandle handle, CSMI_SAS_PHY_ENTITY phy, out byte[] identifyData)
+        {
+            identifyData = null;
+            if (ioControl == null || handle == null || handle.IsInvalid || !IsAtaCapablePhy(phy))
+            {
+                return false;
+            }
+
+            return SendAtaCommand(handle, ioControl, phy, IdentifyDeviceCommand, 0x00, 0x00, SectorBytes, out identifyData);
+        }
+
         internal static bool IsAtaCapablePhy(CSMI_SAS_PHY_ENTITY phy)
         {
             return (phy.Attached.bTargetPortProtocol & CsmiProtocolSata) != 0
                 || (phy.Attached.bTargetPortProtocol & CsmiProtocolStp) != 0;
         }
 
+        internal static void ApplyPhyInfo(StorageDevice device, CSMI_SAS_PHY_ENTITY phy)
+        {
+            if (device == null)
+            {
+                return;
+            }
+
+            device.Csmi.PortIdentifier = phy.bPortIdentifier;
+            device.Csmi.AttachedPhyIdentifier = phy.Attached.bPhyIdentifier;
+            device.Csmi.NegotiatedLinkRate = phy.bNegotiatedLinkRate;
+            device.Csmi.NegotiatedLinkRateName = GetLinkRateName(phy.bNegotiatedLinkRate);
+            device.Csmi.AttachedSasAddress = FormatSasAddress(phy.Attached.bSASAddress);
+            device.Csmi.TargetProtocol = phy.Attached.bTargetPortProtocol;
+        }
+
         #endregion
 
         #region Private
+
+        private static bool HasRequestedPhy(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            return device.Csmi.PortIdentifier.HasValue
+                || device.Csmi.AttachedPhyIdentifier.HasValue
+                || !string.IsNullOrWhiteSpace(device.Csmi.AttachedSasAddress)
+                || device.Scsi.TargetID.HasValue;
+        }
+
+        private static bool MatchesRequestedPhy(StorageDevice device, CSMI_SAS_PHY_ENTITY phy)
+        {
+            if (device == null)
+            {
+                return true;
+            }
+
+            if (device.Csmi.PortIdentifier.HasValue && phy.bPortIdentifier != device.Csmi.PortIdentifier.Value)
+            {
+                return false;
+            }
+
+            if (device.Csmi.AttachedPhyIdentifier.HasValue && phy.Attached.bPhyIdentifier != device.Csmi.AttachedPhyIdentifier.Value)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(device.Csmi.AttachedSasAddress))
+            {
+                var candidateAddress = FormatSasAddress(phy.Attached.bSASAddress);
+                if (!string.Equals(candidateAddress, device.Csmi.AttachedSasAddress, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            if (!device.Csmi.PortIdentifier.HasValue && device.Scsi.TargetID.HasValue && phy.bPortIdentifier != device.Scsi.TargetID.Value)
+            {
+                return false;
+            }
+
+            return true;
+        }
 
         private static string FormatSasAddress(byte[] sasAddress)
         {
