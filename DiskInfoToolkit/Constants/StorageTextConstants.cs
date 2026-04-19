@@ -28,6 +28,8 @@ namespace DiskInfoToolkit.Constants
 
         public const string DriveController = "Drive Controller";
 
+        public const string Nvme = "NVMe";
+
         public const string Mmc = "MMC";
 
         public const string Sd = "SD";

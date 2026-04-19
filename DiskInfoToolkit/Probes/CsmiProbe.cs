@@ -55,9 +55,9 @@ namespace DiskInfoToolkit.Probes
 
         private const int SectorBytes = 512;
 
-        private const byte CsmiProtocolSata = 0x01;
+        internal const byte CsmiProtocolSata = 0x01;
 
-        private const byte CsmiProtocolStp = 0x04;
+        internal const byte CsmiProtocolStp = 0x04;
 
         #endregion
 

@@ -476,8 +476,8 @@ namespace DiskInfoToolkit.Core
                 return false;
             }
 
-            bool isAtaTarget = (device.Csmi.TargetProtocol.GetValueOrDefault() & 0x01) != 0
-                            || (device.Csmi.TargetProtocol.GetValueOrDefault() & 0x04) != 0
+            bool isAtaTarget = (device.Csmi.TargetProtocol.GetValueOrDefault() & CsmiProbe.CsmiProtocolSata) != 0
+                            || (device.Csmi.TargetProtocol.GetValueOrDefault() & CsmiProbe.CsmiProtocolStp) != 0
                             || device.BusType == StorageBusType.Sata
                             || device.BusType == StorageBusType.Ata
                             || device.TransportKind == StorageTransportKind.Ata;

@@ -108,6 +108,13 @@ namespace DiskInfoToolkit.Core
                         CsmiProbe.ApplyPhyInfo(memberDevice, phy);
                         CsmiProbe.ApplyAtaIdentify(memberDevice, identifyData);
 
+                        if (MatchesExistingVisibleAtaDevice(controllerDevices, memberDevice))
+                        {
+                            ProbeTraceRecorder.Add(memberDevice, $"Skipping synthetic Intel RST SATA member for CSMI phy {phy.bPortIdentifier} on port {representative.Scsi.PortNumber.Value} because an equivalent visible ATA device is already present in the result list.");
+                            existingMemberKeys.Add(memberKey);
+                            continue;
+                        }
+
                         ProbeTraceRecorder.Add(memberDevice, $"Synthetic Intel RST SATA member created from CSMI phy {phy.bPortIdentifier} on port {representative.Scsi.PortNumber.Value} after ATA IDENTIFY validation.");
 
                         members.Add(memberDevice);
@@ -230,12 +237,7 @@ namespace DiskInfoToolkit.Core
 
             if (device.Controller.Family == StorageControllerFamily.IntelRst || device.Controller.Family == StorageControllerFamily.IntelVroc)
             {
-                if (UsesRAIDPath(device))
-                {
-                    return false;
-                }
-
-                return !LooksLikeExistingAggregateRaidVolume(device);
+                return CanShadowSyntheticAtaMember(device);
             }
 
             return true;
@@ -254,6 +256,86 @@ namespace DiskInfoToolkit.Core
             bool hasRaidHint = HasRAIDHint(combinedName);
 
             return UsesRAIDPath(device) && (hasVolumeHint || hasRaidHint);
+        }
+
+        private static bool MatchesExistingVisibleAtaDevice(List<StorageDevice> controllerDevices, StorageDevice memberDevice)
+        {
+            if (controllerDevices == null || memberDevice == null)
+            {
+                return false;
+            }
+
+            var memberSerial = NormalizeIdentityToken(memberDevice.SerialNumber);
+
+            foreach (var device in controllerDevices)
+            {
+                if (!CanShadowSyntheticAtaMember(device))
+                {
+                    continue;
+                }
+
+                var existingSerial = NormalizeIdentityToken(device.SerialNumber);
+
+                if (!string.IsNullOrWhiteSpace(memberSerial)
+                 && !string.IsNullOrWhiteSpace(existingSerial)
+                 && string.Equals(existingSerial, memberSerial, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (device      .Scsi.PortNumber.HasValue
+                 && memberDevice.Scsi.PortNumber.HasValue
+                 && device      .Scsi.TargetID.HasValue
+                 && memberDevice.Scsi.TargetID.HasValue
+                 && device.Scsi.PortNumber.Value == memberDevice.Scsi.PortNumber.Value
+                 && device.Scsi.TargetID.Value   == memberDevice.Scsi.TargetID.Value)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool CanShadowSyntheticAtaMember(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            if (LooksLikeExistingAggregateRaidVolume(device) || LooksLikeNvmeDevice(device))
+            {
+                return false;
+            }
+
+            return device.Scsi.PortNumber.HasValue
+                && device.Scsi.TargetID.HasValue;
+        }
+
+        private static bool LooksLikeNvmeDevice(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            if (device.BusType == StorageBusType.Nvme || device.TransportKind == StorageTransportKind.Nvme)
+            {
+                return true;
+            }
+
+            return BuildCombinedDeviceName(device).IndexOf(StorageTextConstants.Nvme, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string NormalizeIdentityToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return new string(value.Where(ch => !char.IsWhiteSpace(ch)).ToArray()).Trim();
         }
 
         private static bool LooksLikeAggregateRaidVolume(StorageDevice device, List<StorageDevice> members)
