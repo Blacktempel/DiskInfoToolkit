@@ -37,9 +37,11 @@ namespace DiskInfoToolkit.Probes
 
         private const uint NvmeIdentifyNamespaceCns = 0;
 
-        private const uint NvmeNamespaceIdAll = 0xFFFFFFFF;
+        private const uint NvmeNamespaceIdZero = 0;
 
         private const uint NvmeNamespaceIdOne = 1;
+
+        private const uint NvmeNamespaceIdAll = 0xFFFFFFFF;
 
         private const uint NvmeLogPageSmartHealthInformation = 2;
 
@@ -80,13 +82,19 @@ namespace DiskInfoToolkit.Probes
                     TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdOne, out identifyNamespaceData)
                     || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdOne, out identifyNamespaceData)
                     || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdAll, out identifyNamespaceData)
-                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdAll, out identifyNamespaceData);
+                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdAll, out identifyNamespaceData)
+                    //Micron driver (mtinvme.sys) wants namespace 0
+                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdZero, out identifyNamespaceData)
+                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdZero, out identifyNamespaceData);
 
                 bool smartOk =
                     TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdAll, out smartLogData)
                     || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdAll, out smartLogData)
                     || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData);
+                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData)
+                    //Micron driver (mtinvme.sys) wants namespace 0
+                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdZero, out smartLogData)
+                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdZero, out smartLogData);
 
                 if (identifyControllerOk)
                 {

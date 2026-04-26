@@ -61,13 +61,12 @@ namespace DiskInfoToolkit.Probes
                 }
             }
 
+            //Prefer using Firmware / Revision from Identify Controller data, as IOCTL_STORAGE_QUERY_PROPERTY may
+            //return a different value which does not match the drive's actual version.
             if (firmwareOk)
             {
                 firmware = StringUtil.TrimStorageString(firmware);
-                if (string.IsNullOrWhiteSpace(device.ProductRevision))
-                {
-                    device.ProductRevision = firmware;
-                }
+                device.ProductRevision = firmware;
             }
         }
 
