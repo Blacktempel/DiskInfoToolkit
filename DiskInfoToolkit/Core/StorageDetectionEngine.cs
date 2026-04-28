@@ -80,12 +80,13 @@ namespace DiskInfoToolkit.Core
                 ApplyDeviceFilters(device);
 
                 //Fetch standard storage properties via Storage IOCTLs
-                AttachStandardStorageProperties(device);
+                AttachStandardStorageProperties(device, _ioControl);
                 SelectProbeStrategy(device);
 
                 result.Add(device);
             }
 
+            //Intel RST SATA members
             IntelRstSataMemberEnumerator.Enumerate(result, _ioControl, out var detectedRstSataMembers);
 
             foreach (var member in detectedRstSataMembers)
@@ -94,6 +95,19 @@ namespace DiskInfoToolkit.Core
             }
 
             IntelRstSataMemberEnumerator.RemoveAggregateVolumes(result, detectedRstSataMembers);
+
+            //Microsoft Storage Spaces
+            MicrosoftStorageSpacesEnumerator.Enumerate(result, _ioControl, out var detectedMSStorageSpaces);
+
+            if (detectedMSStorageSpaces.Count > 0)
+            {
+                MicrosoftStorageSpacesEnumerator.RemoveStorageSpacesAggregates(result);
+
+                foreach (var storageSpacesDevice in detectedMSStorageSpaces)
+                {
+                    result.Add(storageSpacesDevice);
+                }
+            }
 
             foreach (var device in result)
             {
@@ -118,6 +132,157 @@ namespace DiskInfoToolkit.Core
 
         #endregion
 
+        #region Internal
+
+        internal static void SelectProbeStrategy(StorageDevice device)
+        {
+            string service = device.Controller.Service ?? string.Empty;
+            string controllerClass = device.Controller.Class ?? string.Empty;
+
+            if (StringUtil.EqualsAny(service, ControllerServiceGroups.UsbMassStorageServices)
+             || controllerClass.Equals(ControllerClassNames.Usb, StringComparison.OrdinalIgnoreCase)
+             || device.TransportKind == StorageTransportKind.Usb
+             || device.BusType == StorageBusType.Usb)
+            {
+                device.ProbeStrategy = ProbeStrategy.UsbProbe;
+                return;
+            }
+
+            if (StringUtil.EqualsAny(service, ControllerServiceGroups.SdControllerServices)
+             || device.TransportKind == StorageTransportKind.Sd
+             || device.TransportKind == StorageTransportKind.Mmc
+             || device.BusType == StorageBusType.Sd
+             || device.BusType == StorageBusType.Mmc)
+            {
+                device.ProbeStrategy = ProbeStrategy.SdMmcProbe;
+                return;
+            }
+
+            //Intel RST / VROC controller stacks can sit in front of both NVMe and SATA media.
+            //The RAID dispatcher already contains the Intel miniport, VROC, NVMe pass-through,
+            //and CSMI/SATA paths, so routing these services directly to the NVMe dispatcher is too early.
+            if (StringUtil.EqualsAny(service, ControllerServiceGroups.IntelRstControllerServices)
+             || StringUtil.EqualsAny(service, ControllerServiceGroups.IntelRaidProbeServices)
+             || device.Controller.Family == StorageControllerFamily.IntelRst
+             || device.Controller.Family == StorageControllerFamily.IntelVroc)
+            {
+                device.ProbeStrategy = ProbeStrategy.RaidProbe;
+                return;
+            }
+
+            if (StringUtil.StartsWithAny(service, ControllerServiceGroups.SasServicePrefixes)
+             || StringUtil.EqualsAny(service, ControllerServiceNames.MegaSas)
+             || controllerClass.Equals(ControllerClassNames.Raid, StringComparison.OrdinalIgnoreCase)
+             || controllerClass.Equals(ControllerClassNames.Sas, StringComparison.OrdinalIgnoreCase)
+             || device.TransportKind == StorageTransportKind.Raid
+             || device.TransportKind == StorageTransportKind.Sas
+             || device.BusType == StorageBusType.RAID
+             || device.BusType == StorageBusType.Sas)
+            {
+                device.ProbeStrategy = ProbeStrategy.RaidProbe;
+                return;
+            }
+
+            if (StringUtil.EqualsAny(service, ControllerServiceGroups.NvmeControllerServices)
+             || device.TransportKind == StorageTransportKind.Nvme
+             || device.BusType == StorageBusType.Nvme)
+            {
+                device.ProbeStrategy = ProbeStrategy.PciNvmeProbe;
+                return;
+            }
+
+            device.ProbeStrategy = ProbeStrategy.GenericStorageProbe;
+        }
+
+        internal static void AttachStandardStorageProperties(StorageDevice device, IStorageIoControl ioControl)
+        {
+            if (string.IsNullOrWhiteSpace(device.DevicePath))
+            {
+                return;
+            }
+
+            SafeFileHandle handle = ioControl.OpenDevice(
+                device.DevicePath,
+                IoAccess.GenericRead,
+                IoShare.ReadWrite,
+                IoCreation.OpenExisting,
+                IoFlags.Normal);
+
+            if (handle == null || handle.IsInvalid)
+            {
+                return;
+            }
+
+            using (handle)
+            {
+                if (ioControl.TryGetStorageDeviceDescriptor(handle, out var descriptor))
+                {
+                    device.VendorName      = StringUtil.FirstNonEmpty(descriptor.VendorID, device.VendorName, string.Empty);
+                    device.ProductName     = StringUtil.FirstNonEmpty(descriptor.ProductID, device.ProductName, string.Empty);
+                    device.ProductRevision = StringUtil.FirstNonEmpty(descriptor.ProductRevision, device.ProductRevision, string.Empty);
+                    device.SerialNumber    = StringUtil.FirstNonEmpty(descriptor.SerialNumber, device.SerialNumber, string.Empty);
+                    device.BusType         = descriptor.BusType;
+                    device.IsRemovable     = descriptor.RemovableMedia;
+                }
+
+                if (ioControl.TryGetStorageAdapterDescriptor(handle, out var adapterDescriptor) && device.BusType == StorageBusType.Unknown)
+                {
+                    device.BusType = adapterDescriptor.BusType;
+                }
+
+                if (ioControl.TryGetScsiAddress(handle, out var scsiAddress))
+                {
+                    device.Scsi.PortNumber = scsiAddress.PortNumber;
+                    device.Scsi.PathID     = scsiAddress.PathID;
+                    device.Scsi.TargetID   = scsiAddress.TargetID;
+                    device.Scsi.Lun        = scsiAddress.Lun;
+                }
+
+                if (ioControl.TryGetSmartVersion(handle, out var smartVersionInfo))
+                {
+                    device.SupportsSmart   = true;
+                    device.SmartVersionRaw = smartVersionInfo.Capabilities;
+                }
+
+                if (ioControl.TryGetStorageDeviceNumber(handle, out var deviceNumberInfo))
+                {
+                    device.StorageDeviceNumber = deviceNumberInfo.DeviceNumber;
+                }
+
+                if (ioControl.TryGetDriveGeometryEx(handle, out var geometryInfo))
+                {
+                    device.DiskSizeBytes = geometryInfo.DiskSize;
+                }
+
+                if (ioControl.TryGetPredictFailure(handle, out var predictFailureInfo))
+                {
+                    device.PredictsFailure          = predictFailureInfo.PredictsFailure;
+                    device.PredictFailureVendorData = predictFailureInfo.VendorSpecificData ?? [];
+                }
+
+                if (ioControl.TryGetSffDiskDeviceProtocol(handle, out var protocolType))
+                {
+                    device.SdProtocolType = protocolType;
+
+                    if (protocolType == StorageProtocolType.MultiMediaCard)
+                    {
+                        device.SdProtocolName = StorageTextConstants.Mmc;
+
+                        if (device.TransportKind == StorageTransportKind.Sd)
+                        {
+                            device.TransportKind = StorageTransportKind.Mmc;
+                        }
+                    }
+                    else if (protocolType == StorageProtocolType.SecureDigital)
+                    {
+                        device.SdProtocolName = StorageTextConstants.Sd;
+                    }
+                }
+            }
+        }
+
+        #endregion
+
         #region Private
 
         private static StorageDevice CreateBaseDevice(PnpDiskNode node)
@@ -127,11 +292,11 @@ namespace DiskInfoToolkit.Core
             device.AlternateDevicePath   = node.DevicePath ?? string.Empty;
             device.DeviceInstanceID      = node.DeviceInstanceID ?? string.Empty;
             device.ParentInstanceID      = node.ParentInstanceID ?? string.Empty;
-            device.DisplayName           = FirstNonEmpty(node.FriendlyName, node.DeviceDescription, node.DevicePath, StorageTextConstants.UnknownDisk);
+            device.DisplayName           = StringUtil.FirstNonEmpty(node.FriendlyName, node.DeviceDescription, node.DevicePath, StorageTextConstants.UnknownDisk);
             device.DeviceDescription     = node.DeviceDescription ?? string.Empty;
-            device.DeviceTypeLabel       = FirstNonEmpty(node.DeviceDescription, StorageTextConstants.DiskDrive);
-            device.Controller.Name       = FirstNonEmpty(node.ParentDisplayName, StorageTextConstants.DriveController);
-            device.Controller.HardwareID = FirstNonEmpty(node.ParentHardwareID, node.HardwareID, string.Empty);
+            device.DeviceTypeLabel       = StringUtil.FirstNonEmpty(node.DeviceDescription, StorageTextConstants.DiskDrive);
+            device.Controller.Name       = StringUtil.FirstNonEmpty(node.ParentDisplayName, StorageTextConstants.DriveController);
+            device.Controller.HardwareID = StringUtil.FirstNonEmpty(node.ParentHardwareID, node.HardwareID, string.Empty);
             device.Controller.Identifier = node.ControllerIdentifier ?? string.Empty;
 
             VendorIDParser.TryParse(device.Controller.HardwareID, out var vendorId, out var deviceId, out var revision, out var isUsbStyle);
@@ -147,7 +312,7 @@ namespace DiskInfoToolkit.Core
         {
             device.Controller.Class   = node.ParentClass ?? string.Empty;
             device.Controller.Service = node.ParentService ?? string.Empty;
-            device.Controller.Name    = FirstNonEmpty(node.ParentDisplayName, device.Controller.Name, StorageTextConstants.DriveController);
+            device.Controller.Name    = StringUtil.FirstNonEmpty(node.ParentDisplayName, device.Controller.Name, StorageTextConstants.DriveController);
 
             if (string.IsNullOrWhiteSpace(device.Controller.HardwareID))
             {
@@ -338,158 +503,6 @@ namespace DiskInfoToolkit.Core
                 device.FilterReason = "Virtual disk filtered.";
                 device.Controller.Family = StorageControllerFamily.VirtualDisk;
                 device.TransportKind = StorageTransportKind.Virtual;
-            }
-        }
-
-        private static void SelectProbeStrategy(StorageDevice device)
-        {
-            string service = device.Controller.Service ?? string.Empty;
-            string controllerClass = device.Controller.Class ?? string.Empty;
-
-            if (StringUtil.EqualsAny(service, ControllerServiceGroups.UsbMassStorageServices)
-                || controllerClass.Equals(ControllerClassNames.Usb, StringComparison.OrdinalIgnoreCase)
-                || device.TransportKind == StorageTransportKind.Usb
-                || device.BusType == StorageBusType.Usb)
-            {
-                device.ProbeStrategy = ProbeStrategy.UsbProbe;
-                return;
-            }
-
-            if (StringUtil.EqualsAny(service, ControllerServiceGroups.SdControllerServices)
-                || device.TransportKind == StorageTransportKind.Sd
-                || device.TransportKind == StorageTransportKind.Mmc
-                || device.BusType == StorageBusType.Sd
-                || device.BusType == StorageBusType.Mmc)
-            {
-                device.ProbeStrategy = ProbeStrategy.SdMmcProbe;
-                return;
-            }
-
-            //Intel RST / VROC controller stacks can sit in front of both NVMe and SATA media.
-            //The RAID dispatcher already contains the Intel miniport, VROC, NVMe pass-through,
-            //and CSMI/SATA paths, so routing these services directly to the NVMe dispatcher is too early.
-            if (StringUtil.EqualsAny(service, ControllerServiceGroups.IntelRstControllerServices)
-                || StringUtil.EqualsAny(service, ControllerServiceGroups.IntelRaidProbeServices)
-                || device.Controller.Family == StorageControllerFamily.IntelRst
-                || device.Controller.Family == StorageControllerFamily.IntelVroc)
-            {
-                device.ProbeStrategy = ProbeStrategy.RaidProbe;
-                return;
-            }
-
-            if (StringUtil.StartsWithAny(service, ControllerServiceGroups.SasServicePrefixes)
-                || StringUtil.EqualsAny(service, ControllerServiceNames.MegaSas)
-                || controllerClass.Equals(ControllerClassNames.Raid, StringComparison.OrdinalIgnoreCase)
-                || controllerClass.Equals(ControllerClassNames.Sas, StringComparison.OrdinalIgnoreCase)
-                || device.TransportKind == StorageTransportKind.Raid
-                || device.TransportKind == StorageTransportKind.Sas
-                || device.BusType == StorageBusType.RAID
-                || device.BusType == StorageBusType.Sas)
-            {
-                device.ProbeStrategy = ProbeStrategy.RaidProbe;
-                return;
-            }
-
-            if (StringUtil.EqualsAny(service, ControllerServiceGroups.NvmeControllerServices)
-                || device.TransportKind == StorageTransportKind.Nvme
-                || device.BusType == StorageBusType.Nvme)
-            {
-                device.ProbeStrategy = ProbeStrategy.PciNvmeProbe;
-                return;
-            }
-
-            device.ProbeStrategy = ProbeStrategy.GenericStorageProbe;
-        }
-
-        private static string FirstNonEmpty(params string[] values)
-        {
-            return StringUtil.FirstNonEmpty(values);
-        }
-
-        private void AttachStandardStorageProperties(StorageDevice device)
-        {
-            if (string.IsNullOrWhiteSpace(device.DevicePath))
-            {
-                return;
-            }
-
-            SafeFileHandle handle = _ioControl.OpenDevice(
-                device.DevicePath,
-                IoAccess.GenericRead,
-                IoShare.ReadWrite,
-                IoCreation.OpenExisting,
-                IoFlags.Normal);
-
-            if (handle == null || handle.IsInvalid)
-            {
-                return;
-            }
-
-            using (handle)
-            {
-                if (_ioControl.TryGetStorageDeviceDescriptor(handle, out var descriptor))
-                {
-                    device.VendorName      = FirstNonEmpty(descriptor.VendorID, device.VendorName, string.Empty);
-                    device.ProductName     = FirstNonEmpty(descriptor.ProductID, device.ProductName, string.Empty);
-                    device.ProductRevision = FirstNonEmpty(descriptor.ProductRevision, device.ProductRevision, string.Empty);
-                    device.SerialNumber    = FirstNonEmpty(descriptor.SerialNumber, device.SerialNumber, string.Empty);
-                    device.BusType         = descriptor.BusType;
-                    device.IsRemovable     = descriptor.RemovableMedia;
-                }
-
-                if (_ioControl.TryGetStorageAdapterDescriptor(handle, out var adapterDescriptor) && device.BusType == StorageBusType.Unknown)
-                {
-                    device.BusType = adapterDescriptor.BusType;
-                }
-
-                if (_ioControl.TryGetScsiAddress(handle, out var scsiAddress))
-                {
-                    device.Scsi.PortNumber = scsiAddress.PortNumber;
-                    device.Scsi.PathID     = scsiAddress.PathID;
-                    device.Scsi.TargetID   = scsiAddress.TargetID;
-                    device.Scsi.Lun        = scsiAddress.Lun;
-                }
-
-                if (_ioControl.TryGetSmartVersion(handle, out var smartVersionInfo))
-                {
-                    device.SupportsSmart   = true;
-                    device.SmartVersionRaw = smartVersionInfo.Capabilities;
-                }
-
-                if (_ioControl.TryGetStorageDeviceNumber(handle, out var deviceNumberInfo))
-                {
-                    device.StorageDeviceNumber = deviceNumberInfo.DeviceNumber;
-                }
-
-                if (_ioControl.TryGetDriveGeometryEx(handle, out var geometryInfo))
-                {
-                    device.DiskSizeBytes = geometryInfo.DiskSize;
-                }
-
-                if (_ioControl.TryGetPredictFailure(handle, out var predictFailureInfo))
-                {
-                    device.PredictsFailure          = predictFailureInfo.PredictsFailure;
-                    device.PredictFailureVendorData = predictFailureInfo.VendorSpecificData ?? [];
-                }
-
-                if (_ioControl.TryGetSffDiskDeviceProtocol(handle, out var protocolType))
-                {
-                    device.SdProtocolType = protocolType;
-
-                    if (protocolType == StorageProtocolType.MultiMediaCard)
-                    {
-                        device.SdProtocolName = StorageTextConstants.Mmc;
-
-                        if (device.TransportKind == StorageTransportKind.Sd)
-                        {
-                            device.TransportKind = StorageTransportKind.Mmc;
-                        }
-                    }
-                    else if (protocolType == StorageProtocolType.SecureDigital)
-                    {
-                        device.SdProtocolName = StorageTextConstants.Sd;
-                    }
-                }
             }
         }
 

@@ -40,6 +40,25 @@ namespace DiskInfoToolkit.Utilities
             return false;
         }
 
+        public static bool ContainsAny(string value, params string[] candidates)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            foreach (var candidate in candidates)
+            {
+                if (!string.IsNullOrWhiteSpace(candidate)
+                 && value.IndexOf(candidate, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public static string FirstNonEmpty(params string[] values)
         {
             for (int i = 0; i < values.Length; ++i)

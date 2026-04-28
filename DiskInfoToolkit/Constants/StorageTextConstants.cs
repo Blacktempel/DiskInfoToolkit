@@ -50,6 +50,12 @@ namespace DiskInfoToolkit.Constants
 
         public const string RaidScsi = "RAID SCSI";
 
+        public const string MSStorageSpaceDevice = "Microsoft Storage Space Device";
+
+        public const string StorageSpace = "Storage Space";
+
+        public const string VirtualDisk = "Virtual Disk";
+
         public const string GenericControllerIdentifierPrefix = "GEN";
 
         public const string ControllerIdentifierSeparator = "-";

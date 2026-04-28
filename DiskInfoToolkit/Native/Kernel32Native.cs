@@ -37,6 +37,9 @@ namespace DiskInfoToolkit.Native
         public static extern bool DeviceIoControl(SafeFileHandle device, uint ioControlCode, byte[] inBuffer, int inBufferSize, [Out] byte[] outBuffer, int outBufferSize, out int bytesReturned, IntPtr overlapped);
 
         [DllImport(DLL_NAME, CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern uint QueryDosDevice(string deviceName, char[] targetPath, int maxCharacters);
+
+        [DllImport(DLL_NAME, CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern IntPtr GetModuleHandle(string lpModuleName);
 
         [DllImport(DLL_NAME, CharSet = CharSet.Unicode, SetLastError = true)]
