@@ -15,7 +15,6 @@ namespace DiskInfoToolkit.Vendors
         public OptionalVendorBackendSet(ExternalVendorLibraryManager libraries)
         {
             HighPointBackend = new HighPointBackend(libraries);
-            MegaRaidBackend = new MegaRaidBackend(libraries);
         }
 
         #endregion
@@ -23,8 +22,6 @@ namespace DiskInfoToolkit.Vendors
         #region Properties
 
         public IOptionalVendorBackend HighPointBackend { get; private set; }
-
-        public IOptionalVendorBackend MegaRaidBackend { get; private set; }
 
         #endregion
     }

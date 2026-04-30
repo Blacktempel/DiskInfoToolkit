@@ -38,6 +38,22 @@ namespace DiskInfoToolkit.Constants
 
         public const string IaStorPrefix = "iaStor";
 
+        public const string HptIoP = "hptiop";
+
+        public const string HptMv = "hptmv";
+
+        public const string Hpt3xx = "hpt3xx";
+
+        public const string Rr62x = "rr62x";
+
+        public const string Rr64x = "rr64x";
+
+        public const string Rr24xx = "rr24xx";
+
+        public const string Rr26xx = "rr26xx";
+
+        public const string RsNvme = "rsnvme";
+
         public const string UaspStor = "UASPStor";
 
         public const string UsbStor = "USBSTOR";
@@ -51,6 +67,20 @@ namespace DiskInfoToolkit.Constants
         public const string SdStor = "sdstor";
 
         public const string MegaSas = "megasas";
+
+        public const string MegaSas2 = "megasas2";
+
+        public const string MegaSas2i = "MegaSAS2i";
+
+        public const string MegaSas35 = "megasas35";
+
+        public const string MegaSas35i = "MegaSAS35i";
+
+        public const string PercSas = "percsas";
+
+        public const string PercSas2 = "percsas2";
+
+        public const string PercSas3 = "percsas3";
 
         public const string Storahci = "storahci";
 

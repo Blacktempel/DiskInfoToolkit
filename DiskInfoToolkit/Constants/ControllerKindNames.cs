@@ -30,6 +30,10 @@ namespace DiskInfoToolkit.Constants
 
         public const string IntelRst = "Intel RST";
 
+        public const string RocketRaid = "RocketRAID";
+
+        public const string MegaRaid = "MegaRAID";
+
         public const string Nvme = "NVMe";
 
         public const string UsbUasp = "USB UASP";

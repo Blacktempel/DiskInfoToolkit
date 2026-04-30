@@ -338,14 +338,18 @@ namespace DiskInfoToolkit.Core
         {
             ProbeTraceRecorder.Add(device, "RAID path: vendor backends -> Intel/VROC -> CSMI -> composite port probing -> controller-specific ATA/SAT/SCSI fallbacks -> generic SCSI fallback.");
 
-            //First try Mega Raid
-            if (device.Controller.Family == StorageControllerFamily.MegaRaid && vendorBackends.MegaRaidBackend.IsAvailable)
+            //First try MegaRAID through the SCSI miniport protocol
+            if (device.Controller.Family == StorageControllerFamily.MegaRaid || ControllerServiceProbeRules.IsMegaRaidController(device))
             {
-                if (vendorBackends.MegaRaidBackend.TryProbe(device))
+                ProbeTraceRecorder.Add(device, "MegaRAID path: trying CDI-compatible SCSI miniport pass-through.");
+
+                if (MegaRaidMiniportProbe.TryPopulate(device, ioControl))
                 {
-                    ProbeTraceRecorder.Add(device, "RAID path: external MegaRAID backend succeeded.");
+                    ProbeTraceRecorder.Add(device, "RAID path: MegaRAID miniport pass-through succeeded.");
                     return;
                 }
+
+                ProbeTraceRecorder.Add(device, "MegaRAID path: miniport pass-through did not return ATA identity or SMART data.");
             }
 
             //Next try HighPoint RocketRaid
@@ -432,14 +436,11 @@ namespace DiskInfoToolkit.Core
             //If we don't have sufficient RAID data at this point, we can try vendor-specific fallbacks for certain controllers
             if (!HasSufficientRaidData(device) && ControllerServiceProbeRules.IsScsiRaidController(device))
             {
-                if (vendorBackends.HighPointBackend.IsAvailable && vendorBackends.HighPointBackend.TryProbe(device))
+                if (ControllerServiceProbeRules.IsHighPointRocketRaidController(device)
+                    && vendorBackends.HighPointBackend.IsAvailable
+                    && vendorBackends.HighPointBackend.TryProbe(device))
                 {
                     ProbeTraceRecorder.Add(device, "RAID path: opportunistic HighPoint backend fallback succeeded.");
-                    vendorFallbackOk = true;
-                }
-                else if (vendorBackends.MegaRaidBackend.IsAvailable && vendorBackends.MegaRaidBackend.TryProbe(device))
-                {
-                    ProbeTraceRecorder.Add(device, "RAID path: opportunistic MegaRAID backend fallback succeeded.");
                     vendorFallbackOk = true;
                 }
             }

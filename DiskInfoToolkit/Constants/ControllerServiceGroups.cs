@@ -39,6 +39,30 @@ namespace DiskInfoToolkit.Constants
             ControllerServiceNames.IaStorVD
         };
 
+        public static readonly string[] RocketRaidControllerServices =
+        {
+            ControllerServiceNames.HptIoP,
+            ControllerServiceNames.HptMv,
+            ControllerServiceNames.Hpt3xx,
+            ControllerServiceNames.Rr62x,
+            ControllerServiceNames.Rr64x,
+            ControllerServiceNames.Rr24xx,
+            ControllerServiceNames.Rr26xx,
+            ControllerServiceNames.RsNvme
+        };
+
+        public static readonly string[] MegaRaidControllerServices =
+        {
+            ControllerServiceNames.MegaSas,
+            ControllerServiceNames.MegaSas2,
+            ControllerServiceNames.MegaSas2i,
+            ControllerServiceNames.MegaSas35,
+            ControllerServiceNames.MegaSas35i,
+            ControllerServiceNames.PercSas,
+            ControllerServiceNames.PercSas2,
+            ControllerServiceNames.PercSas3
+        };
+
         public static readonly string[] UsbMassStorageServices =
         {
             ControllerServiceNames.UaspStor,
@@ -79,6 +103,11 @@ namespace DiskInfoToolkit.Constants
 
         public static readonly string[] ExtendedLsiSasServiceNames =
         {
+            ControllerServiceNames.MegaSas,
+            ControllerServiceNames.MegaSas2,
+            ControllerServiceNames.MegaSas2i,
+            ControllerServiceNames.MegaSas35,
+            ControllerServiceNames.MegaSas35i,
             ControllerServiceNames.LsiSas,
             ControllerServiceNames.LsiSas2,
             ControllerServiceNames.LsiSas2i,

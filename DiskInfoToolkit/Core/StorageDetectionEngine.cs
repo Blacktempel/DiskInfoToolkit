@@ -377,6 +377,34 @@ namespace DiskInfoToolkit.Core
             string service = device.Controller.Service ?? string.Empty;
             string controllerClass = device.Controller.Class ?? string.Empty;
 
+            if (ControllerServiceProbeRules.IsMegaRaidController(device))
+            {
+                device.TransportKind     = StorageTransportKind.Raid;
+                device.Controller.Family = StorageControllerFamily.MegaRaid;
+                device.Controller.Kind   = ControllerKindNames.MegaRaid;
+
+                if (string.IsNullOrWhiteSpace(device.Controller.Class))
+                {
+                    device.Controller.Class = ControllerClassNames.ScsiAdapter;
+                }
+
+                return;
+            }
+
+            if (ControllerServiceProbeRules.IsHighPointRocketRaidController(device))
+            {
+                device.TransportKind     = StorageTransportKind.Raid;
+                device.Controller.Family = StorageControllerFamily.RocketRaid;
+                device.Controller.Kind   = ControllerKindNames.RocketRaid;
+
+                if (string.IsNullOrWhiteSpace(device.Controller.Class))
+                {
+                    device.Controller.Class = ControllerClassNames.ScsiAdapter;
+                }
+
+                return;
+            }
+
             if (StringUtil.EqualsAny(service, ControllerServiceGroups.NvmeControllerServices))
             {
                 device.TransportKind     = StorageTransportKind.Nvme;

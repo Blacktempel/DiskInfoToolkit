@@ -6,18 +6,18 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit.Vendors
+using System.Runtime.InteropServices;
+
+namespace DiskInfoToolkit.Interop
 {
-    public sealed class MegaRaidBackendCapabilities
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    internal struct MEGARAID_PHYSICAL_DRIVE_LIST_HEADER
     {
-        #region Properties
+        #region Fields
 
-        public bool HasProcessLibCommand { get; set; }
+        public uint Size;
 
-        public bool HasCoreExports
-        {
-            get { return HasProcessLibCommand; }
-        }
+        public uint Count;
 
         #endregion
     }

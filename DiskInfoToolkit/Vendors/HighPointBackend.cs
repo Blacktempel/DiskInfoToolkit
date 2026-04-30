@@ -30,6 +30,8 @@ namespace DiskInfoToolkit.Vendors
 
         #region Fields
 
+        public const string HptGetVersion = "hpt_get_version";
+
         private readonly ExternalVendorLibraryManager _libraries;
 
         private bool _exportsResolved;
@@ -115,6 +117,11 @@ namespace DiskInfoToolkit.Vendors
             int controllerCount = SafeCall(_getControllerCount);
             device.ProbeTrace.Add($"Vendor backend: HighPoint version=0x{version:X8}, controllers={controllerCount}.");
 
+            if (version == 0U || controllerCount < 0)
+            {
+                device.ProbeTrace.Add("Vendor backend: HighPoint library exports were loaded, but the runtime interface is not usable for this controller/driver instance.");
+            }
+
             bool success = false;
             if (controllerCount > 0)
             {
@@ -125,6 +132,12 @@ namespace DiskInfoToolkit.Vendors
             {
                 var ids = new uint[128];
                 int deviceCount = SafeCallPhysicalDevices(ids, ids.Length);
+
+                if (deviceCount < 0)
+                {
+                    device.ProbeTrace.Add($"Vendor backend: HighPoint physical device query failed with {deviceCount}.");
+                }
+
                 if (deviceCount > 0)
                 {
                     device.ProbeTrace.Add($"Vendor backend: HighPoint physical devices reported={deviceCount}.");
@@ -1255,7 +1268,7 @@ namespace DiskInfoToolkit.Vendors
             var module = handle.DangerousGetHandle();
 
             bool found;
-            _getVersion                   = ResolveDelegate<HptGetVersionDelegate         >(module, "hpt_get_version"           , out found); _capabilities.HasVersion          = found;
+            _getVersion                   = ResolveDelegate<HptGetVersionDelegate         >(module, HptGetVersion               , out found); _capabilities.HasVersion          = found;
             _getControllerCount           = ResolveDelegate<HptGetControllerCountDelegate >(module, "hpt_get_controller_count"  , out found); _capabilities.HasControllerCount  = found;
             _getControllerInfo            = ResolveDelegate<HptGetControllerInfoDelegate  >(module, "hpt_get_controller_info"   , out found); _capabilities.HasControllerInfo   = found;
             _getControllerInfoV2          = ResolveDelegate<HptGetControllerInfoV2Delegate>(module, "hpt_get_controller_info_v2", out found); _capabilities.HasControllerInfoV2 = found;
