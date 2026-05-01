@@ -12,7 +12,6 @@ using DiskInfoToolkit.Interop;
 using DiskInfoToolkit.Monitoring;
 using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Partitions;
-using DiskInfoToolkit.Vendors;
 using Microsoft.Win32.SafeHandles;
 using System.Globalization;
 using System.Reflection;
@@ -389,12 +388,7 @@ namespace DiskInfoToolkit
 
         private static List<StorageDevice> EnumerateRawDisks()
         {
-            var vendorLibraries = new ExternalVendorLibraryManager();
-
-            var engine = new StorageDetectionEngine(
-                new WindowsStorageIoControl(),
-                vendorLibraries,
-                new OptionalVendorBackendSet(vendorLibraries));
+            var engine = new StorageDetectionEngine(new WindowsStorageIoControl());
 
             //Get the raw list of disks
             var disks = engine.GetDisks();

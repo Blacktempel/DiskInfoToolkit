@@ -12,7 +12,6 @@ using DiskInfoToolkit.PCI;
 using DiskInfoToolkit.Pnp;
 using DiskInfoToolkit.Usb;
 using DiskInfoToolkit.Utilities;
-using DiskInfoToolkit.Vendors;
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
 
@@ -22,21 +21,12 @@ namespace DiskInfoToolkit.Core
     {
         #region Constructor
 
-        public StorageDetectionEngine(
-            IStorageIoControl ioControl,
-            ExternalVendorLibraryManager vendorLibraries,
-            OptionalVendorBackendSet vendorBackends)
+        public StorageDetectionEngine(IStorageIoControl ioControl)
         {
             if (ioControl == null)
                 throw new ArgumentNullException(nameof(ioControl));
-            if (vendorLibraries == null)
-                throw new ArgumentNullException(nameof(vendorLibraries));
-            if (vendorBackends == null)
-                throw new ArgumentNullException(nameof(vendorBackends));
 
             _ioControl = ioControl;
-            _vendorLibraries = vendorLibraries;
-            _vendorBackends = vendorBackends;
         }
 
         #endregion
@@ -45,9 +35,6 @@ namespace DiskInfoToolkit.Core
 
         private readonly IStorageIoControl _ioControl;
 
-        private readonly ExternalVendorLibraryManager _vendorLibraries;
-
-        private readonly OptionalVendorBackendSet _vendorBackends;
 
         #endregion
 
@@ -118,7 +105,7 @@ namespace DiskInfoToolkit.Core
                 if (!device.IsFiltered)
                 {
                     //Probe device with appropriate strategy based on controller service and class
-                    StorageProbeDispatcher.Probe(device, _ioControl, _vendorBackends);
+                    StorageProbeDispatcher.Probe(device, _ioControl);
                 }
 
 #if DEBUG
@@ -155,6 +142,20 @@ namespace DiskInfoToolkit.Core
              || device.BusType == StorageBusType.Mmc)
             {
                 device.ProbeStrategy = ProbeStrategy.SdMmcProbe;
+                return;
+            }
+
+            if (ControllerServiceProbeRules.IsHighPointRocketRaidController(device))
+            {
+                device.Controller.Family = StorageControllerFamily.RocketRaid;
+                device.ProbeStrategy = ProbeStrategy.RaidProbe;
+                return;
+            }
+
+            if (ControllerServiceProbeRules.IsMegaRaidController(device))
+            {
+                device.Controller.Family = StorageControllerFamily.MegaRaid;
+                device.ProbeStrategy = ProbeStrategy.RaidProbe;
                 return;
             }
 

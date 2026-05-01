@@ -8,7 +8,6 @@
 
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Probes;
-using DiskInfoToolkit.Vendors;
 
 namespace DiskInfoToolkit.Core
 {
@@ -16,7 +15,7 @@ namespace DiskInfoToolkit.Core
     {
         #region Public
 
-        public static void Probe(StorageDevice device, IStorageIoControl ioControl, OptionalVendorBackendSet vendorBackends)
+        public static void Probe(StorageDevice device, IStorageIoControl ioControl)
         {
             if (device == null)
             {
@@ -40,7 +39,7 @@ namespace DiskInfoToolkit.Core
                     ProbeSdMmcLikeDevice(device, ioControl);
                     break;
                 case ProbeStrategy.RaidProbe:
-                    ProbeRaidLikeDevice(device, ioControl, vendorBackends);
+                    ProbeRaidLikeDevice(device, ioControl);
                     break;
                 default:
                     ProbeGenericDevice(device, ioControl);
@@ -334,9 +333,9 @@ namespace DiskInfoToolkit.Core
             }
         }
 
-        private static void ProbeRaidLikeDevice(StorageDevice device, IStorageIoControl ioControl, OptionalVendorBackendSet vendorBackends)
+        private static void ProbeRaidLikeDevice(StorageDevice device, IStorageIoControl ioControl)
         {
-            ProbeTraceRecorder.Add(device, "RAID path: vendor backends -> Intel/VROC -> CSMI -> composite port probing -> controller-specific ATA/SAT/SCSI fallbacks -> generic SCSI fallback.");
+            ProbeTraceRecorder.Add(device, "RAID path: controller miniport probes -> Intel/VROC -> CSMI -> composite port probing -> controller-specific ATA/SAT/SCSI fallbacks -> generic SCSI fallback.");
 
             //First try MegaRAID through the SCSI miniport protocol
             if (device.Controller.Family == StorageControllerFamily.MegaRaid || ControllerServiceProbeRules.IsMegaRaidController(device))
@@ -352,14 +351,18 @@ namespace DiskInfoToolkit.Core
                 ProbeTraceRecorder.Add(device, "MegaRAID path: miniport pass-through did not return ATA identity or SMART data.");
             }
 
-            //Next try HighPoint RocketRaid
-            if (device.Controller.Family == StorageControllerFamily.RocketRaid && vendorBackends.HighPointBackend.IsAvailable)
+            //Next try HighPoint RocketRAID through the direct SCSI miniport IOCTL path
+            if (device.Controller.Family == StorageControllerFamily.RocketRaid || ControllerServiceProbeRules.IsHighPointRocketRaidController(device))
             {
-                if (vendorBackends.HighPointBackend.TryProbe(device))
+                ProbeTraceRecorder.Add(device, "HighPoint path: trying direct SCSI miniport IOCTL pass-through.");
+
+                if (HighPointMiniportProbe.TryPopulate(device, ioControl))
                 {
-                    ProbeTraceRecorder.Add(device, "RAID path: external HighPoint backend succeeded.");
+                    ProbeTraceRecorder.Add(device, "RAID path: HighPoint direct miniport IOCTL succeeded.");
                     return;
                 }
+
+                ProbeTraceRecorder.Add(device, "HighPoint path: direct miniport IOCTL did not return matching controller/device data.");
             }
 
             bool preferCsmiAtaPath = ShouldPreferCsmiAtaRaidPath(device);
@@ -431,21 +434,7 @@ namespace DiskInfoToolkit.Core
                 return;
             }
 
-            bool vendorFallbackOk = false;
-
-            //If we don't have sufficient RAID data at this point, we can try vendor-specific fallbacks for certain controllers
-            if (!HasSufficientRaidData(device) && ControllerServiceProbeRules.IsScsiRaidController(device))
-            {
-                if (ControllerServiceProbeRules.IsHighPointRocketRaidController(device)
-                    && vendorBackends.HighPointBackend.IsAvailable
-                    && vendorBackends.HighPointBackend.TryProbe(device))
-                {
-                    ProbeTraceRecorder.Add(device, "RAID path: opportunistic HighPoint backend fallback succeeded.");
-                    vendorFallbackOk = true;
-                }
-            }
-
-            if (vendorFallbackOk || HasSufficientRaidData(device))
+            if (HasSufficientRaidData(device))
             {
                 ProbeTraceRecorder.Add(device, "RAID path: final RAID fallback sequence produced sufficient data.");
                 return;
