@@ -9,6 +9,7 @@
 using BlackSharp.Core.Logging;
 using DiskInfoToolkit;
 using System.Collections;
+using System.Diagnostics;
 using System.Reflection;
 
 namespace ConsoleOutputTest
@@ -33,7 +34,10 @@ namespace ConsoleOutputTest
 
         public void DoTest()
         {
-            WriteOutput($"### Detecting all devices. ###");
+            var sw = new Stopwatch();
+            sw.Start();
+
+            WriteOutput($"### Detecting all disks. ###");
             WriteOutput();
 
             //You can, optionally, set language of smart attributes to any supported culture
@@ -54,7 +58,9 @@ namespace ConsoleOutputTest
                 WriteOutput();
             }
 
-            WriteOutput($"### Detecting done. ###");
+            sw.Stop();
+
+            WriteOutput($"### Detecting all disks took {sw.Elapsed.TotalMilliseconds:F2} ms. ###");
             WriteOutput();
 
             //Register change event
@@ -69,6 +75,10 @@ namespace ConsoleOutputTest
             {
                 Thread.Sleep(TimeSpan.FromSeconds(1));
             }
+
+            WriteOutput("### Updating all disks ###");
+
+            sw.Restart();
 
             //Go through all current devices
             foreach (var disk in Storage.CurrentDisks)
@@ -99,6 +109,10 @@ namespace ConsoleOutputTest
                     }
                 }
             }
+
+            sw.Stop();
+
+            WriteOutput($"### Update of all disks took {sw.Elapsed.TotalMilliseconds:F2} ms. ###");
         }
 
         #endregion

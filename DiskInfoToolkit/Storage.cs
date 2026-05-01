@@ -221,41 +221,21 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(device));
             }
 
-            bool changed = false;
+            var ioControl = new WindowsStorageIoControl();
+            var refreshed = StorageDeviceCloneHelper.Clone(device);
 
             if (refreshProbeData)
             {
-                //Probe the device again and update the properties
-                var refreshedDevices = GetDisks();
-
-                //Find the best match for the device in the refreshed list
-                var refreshed = StorageDeviceIdentityMatcher.FindBestMatch(refreshedDevices, device);
-
-                //If the device is no longer present, return false
-                if (refreshed == null)
-                {
-                    return false;
-                }
-
-                changed = StorageDeviceCloneHelper.CopyInto(refreshed, device);
-            }
-            else if (refreshPartitions)
-            {
-                changed = StoragePartitionReader.PopulatePartitions(device, new WindowsStorageIoControl());
-            }
-
-            if (refreshProbeData && refreshPartitions)
-            {
-                return changed;
+                RefreshSingleDeviceProbeData(refreshed, ioControl);
             }
 
             if (refreshPartitions)
             {
-                changed |= StoragePartitionReader.PopulatePartitions(device, new WindowsStorageIoControl());
+                StoragePartitionReader.PopulatePartitions(refreshed, ioControl);
             }
 
-            device.LastUpdatedUtc = DateTime.UtcNow;
-            return changed;
+            refreshed.LastUpdatedUtc = DateTime.UtcNow;
+            return StorageDeviceCloneHelper.CopyInto(refreshed, device);
         }
 
         /// <summary>
@@ -402,6 +382,39 @@ namespace DiskInfoToolkit
             }
 
             return disks;
+        }
+
+        private static void RefreshSingleDeviceProbeData(StorageDevice device, IStorageIoControl ioControl)
+        {
+            if (device == null || ioControl == null)
+            {
+                return;
+            }
+
+            ResetVolatileProbeData(device);
+
+            //Refresh the IOCTL-backed base properties for this single device only
+            //Do not enumerate all disks here
+            StorageDetectionEngine.AttachStandardStorageProperties(device, ioControl);
+            StorageDetectionEngine.SelectProbeStrategy(device);
+
+            if (!device.IsFiltered)
+            {
+                StorageProbeDispatcher.Probe(device, ioControl);
+            }
+        }
+
+        private static void ResetVolatileProbeData(StorageDevice device)
+        {
+            device.SupportsSmart = false;
+            device.SmartVersionRaw = 0;
+            device.PredictsFailure = null;
+            device.PredictFailureVendorData = Array.Empty<byte>();
+            device.SmartAttributes = new List<SmartAttributeEntry>();
+            device.SmartAttributeProfile = SmartAttributeProfile.Unknown;
+            device.ProbeTrace = new List<string>();
+            device.Nvme = new StorageNvmeInfo();
+            device.CapacitySource = string.Empty;
         }
 
         private static void EnsureMonitoringStarted()
