@@ -77,6 +77,7 @@ namespace ConsoleOutputTest
             }
 
             WriteOutput("### Updating all disks ###");
+            WriteOutput();
 
             sw.Restart();
 
@@ -112,6 +113,7 @@ namespace ConsoleOutputTest
 
             sw.Stop();
 
+            WriteOutput();
             WriteOutput($"### Update of all disks took {sw.Elapsed.TotalMilliseconds:F2} ms. ###");
         }
 
