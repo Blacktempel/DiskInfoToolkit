@@ -215,6 +215,15 @@ namespace ConsoleOutputTest
                             index++;
                         }
                     }
+                    else if (value is IEnumerable e && e.GetType().GetGenericArguments()?[0]?.IsEnum == true)
+                    {
+                        var index = 0;
+                        foreach (Enum val in e)
+                        {
+                            WriteOutput($"[{index}]: {val}", level + 1);
+                            index++;
+                        }
+                    }
                     else
                     {
                         var index = 0;

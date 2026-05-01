@@ -218,6 +218,23 @@ namespace DiskInfoToolkit.Monitoring
                 };
             }
 
+            if (value is StorageProbePlan probePlan)
+            {
+                return new StorageProbePlan
+                {
+                    IsInitialized       = probePlan.IsInitialized,
+                    Strategy            = probePlan.Strategy,
+                    ControllerFamily    = probePlan.ControllerFamily,
+                    DevicePath          = probePlan.DevicePath,
+                    DeviceInstanceID    = probePlan.DeviceInstanceID,
+                    ControllerService   = probePlan.ControllerService,
+                    ControllerIdentifier = probePlan.ControllerIdentifier,
+                    SuccessfulOperations = probePlan.SuccessfulOperations != null
+                        ? new List<StorageProbeOperation>(probePlan.SuccessfulOperations)
+                        : new List<StorageProbeOperation>()
+                };
+            }
+
             if (value is StorageCsmiInfo csmi)
             {
                 return new StorageCsmiInfo

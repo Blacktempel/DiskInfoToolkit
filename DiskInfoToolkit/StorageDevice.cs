@@ -47,6 +47,7 @@ namespace DiskInfoToolkit
             SmartAttributes = new List<SmartAttributeEntry>();
             SmartAttributeProfile = SmartAttributeProfile.Unknown;
             ProbeTrace = new List<string>();
+            ProbePlan = new StorageProbePlan();
             PredictFailureVendorData = Array.Empty<byte>();
             Scsi = new StorageScsiInfo();
             Nvme = new StorageNvmeInfo();
@@ -229,6 +230,11 @@ namespace DiskInfoToolkit
         /// They can be useful for debugging and understanding how information about the disk was obtained.
         /// </summary>
         public List<string> ProbeTrace { get; set; }
+
+        /// <summary>
+        /// Gets or sets the cached probe plan containing the probe operations that succeeded during the initial full probe.
+        /// </summary>
+        public StorageProbePlan ProbePlan { get; internal set; }
 
         /// <summary>
         /// Gets or sets the NVMe information associated with the device.

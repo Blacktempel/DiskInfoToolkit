@@ -202,6 +202,11 @@ namespace DiskInfoToolkit.Core
                 return;
             }
 
+            if (ShouldSkipStandardPropertyProbing(device))
+            {
+                return;
+            }
+
             SafeFileHandle handle = ioControl.OpenDevice(
                 device.DevicePath,
                 IoAccess.GenericRead,
@@ -216,8 +221,11 @@ namespace DiskInfoToolkit.Core
 
             using (handle)
             {
-                if (ioControl.TryGetStorageDeviceDescriptor(handle, out var descriptor))
+                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.StorageDeviceDescriptor)
+                 && ioControl.TryGetStorageDeviceDescriptor(handle, out var descriptor))
                 {
+                    RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.StorageDeviceDescriptor);
+
                     device.VendorName      = StringUtil.FirstNonEmpty(descriptor.VendorID, device.VendorName, string.Empty);
                     device.ProductName     = StringUtil.FirstNonEmpty(descriptor.ProductID, device.ProductName, string.Empty);
                     device.ProductRevision = StringUtil.FirstNonEmpty(descriptor.ProductRevision, device.ProductRevision, string.Empty);
@@ -226,43 +234,65 @@ namespace DiskInfoToolkit.Core
                     device.IsRemovable     = descriptor.RemovableMedia;
                 }
 
-                if (ioControl.TryGetStorageAdapterDescriptor(handle, out var adapterDescriptor) && device.BusType == StorageBusType.Unknown)
+                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.StorageAdapterDescriptor)
+                 && ioControl.TryGetStorageAdapterDescriptor(handle, out var adapterDescriptor)
+                 && device.BusType == StorageBusType.Unknown)
                 {
+                    RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.StorageAdapterDescriptor);
+
                     device.BusType = adapterDescriptor.BusType;
                 }
 
-                if (ioControl.TryGetScsiAddress(handle, out var scsiAddress))
+                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.ScsiAddress)
+                 && ioControl.TryGetScsiAddress(handle, out var scsiAddress))
                 {
+                    RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.ScsiAddress);
+
                     device.Scsi.PortNumber = scsiAddress.PortNumber;
                     device.Scsi.PathID     = scsiAddress.PathID;
                     device.Scsi.TargetID   = scsiAddress.TargetID;
                     device.Scsi.Lun        = scsiAddress.Lun;
                 }
 
-                if (ioControl.TryGetSmartVersion(handle, out var smartVersionInfo))
+                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.SmartVersion)
+                 && ioControl.TryGetSmartVersion(handle, out var smartVersionInfo))
                 {
+                    RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.SmartVersion);
+
                     device.SupportsSmart   = true;
                     device.SmartVersionRaw = smartVersionInfo.Capabilities;
                 }
 
-                if (ioControl.TryGetStorageDeviceNumber(handle, out var deviceNumberInfo))
+                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.StorageDeviceNumber)
+                 && ioControl.TryGetStorageDeviceNumber(handle, out var deviceNumberInfo))
                 {
+                    RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.StorageDeviceNumber);
+
                     device.StorageDeviceNumber = deviceNumberInfo.DeviceNumber;
                 }
 
-                if (ioControl.TryGetDriveGeometryEx(handle, out var geometryInfo))
+                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.DriveGeometryEx)
+                 && ioControl.TryGetDriveGeometryEx(handle, out var geometryInfo))
                 {
+                    RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.DriveGeometryEx);
+
                     device.DiskSizeBytes = geometryInfo.DiskSize;
                 }
 
-                if (ioControl.TryGetPredictFailure(handle, out var predictFailureInfo))
+                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.PredictFailure)
+                 && ioControl.TryGetPredictFailure(handle, out var predictFailureInfo))
                 {
+                    RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.PredictFailure);
+
                     device.PredictsFailure          = predictFailureInfo.PredictsFailure;
                     device.PredictFailureVendorData = predictFailureInfo.VendorSpecificData ?? [];
                 }
 
-                if (ioControl.TryGetSffDiskDeviceProtocol(handle, out var protocolType))
+                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.SffDiskDeviceProtocol)
+                 && ioControl.TryGetSffDiskDeviceProtocol(handle, out var protocolType))
                 {
+                    RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.SffDiskDeviceProtocol);
+
                     device.SdProtocolType = protocolType;
 
                     if (protocolType == StorageProtocolType.MultiMediaCard)
@@ -279,6 +309,66 @@ namespace DiskInfoToolkit.Core
                         device.SdProtocolName = StorageTextConstants.Sd;
                     }
                 }
+            }
+        }
+
+        internal static bool ShouldSkipStandardPropertyProbing(StorageDevice device)
+        {
+            StorageProbePlan plan = device?.ProbePlan;
+
+            if (plan == null || !plan.IsInitialized || !plan.IsStandardPropertyCompatibleWith(device))
+            {
+                return false;
+            }
+
+            if (plan.SuccessfulOperations == null || plan.SuccessfulOperations.Count == 0)
+            {
+                return true;
+            }
+
+            foreach (var operation in plan.SuccessfulOperations)
+            {
+                if (StorageProbePlan.IsStandardPropertyOperation(operation))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        internal static bool ShouldExecuteStandardPropertyOperation(StorageDevice device, StorageProbeOperation operation)
+        {
+            StorageProbePlan plan = device?.ProbePlan;
+
+            if (plan == null || !plan.IsInitialized)
+            {
+                return true;
+            }
+
+            if (!plan.IsStandardPropertyCompatibleWith(device))
+            {
+                return true;
+            }
+
+            return plan.Contains(operation);
+        }
+
+        internal static void RecordStandardPropertyOperationSuccess(StorageDevice device, StorageProbeOperation operation)
+        {
+            if (device == null)
+            {
+                return;
+            }
+
+            if (device.ProbePlan == null)
+            {
+                device.ProbePlan = new StorageProbePlan();
+            }
+
+            if (!device.ProbePlan.IsInitialized)
+            {
+                device.ProbePlan.RecordSuccess(operation);
             }
         }
 
