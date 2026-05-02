@@ -36,12 +36,31 @@ namespace DiskInfoToolkit
         {
             add
             {
+                if (value == null)
+                {
+                    return;
+                }
+
+                lock (SyncRoot)
+                {
+                    _devicesChanged += value;
+                }
+
                 EnsureMonitoringStarted();
-                _devicesChanged += value;
             }
             remove
             {
-                _devicesChanged -= value;
+                if (value == null)
+                {
+                    return;
+                }
+
+                lock (SyncRoot)
+                {
+                    _devicesChanged -= value;
+                }
+
+                StopMonitoringIfUnused();
             }
         }
 
@@ -53,9 +72,15 @@ namespace DiskInfoToolkit
 
         private const string MessageWindowTitle = nameof(Storage) + "MessageWindow";
 
+        private const uint StopMonitoringMessage = User32Native.WM_APP + 0x03D1;
+
+        private const int MonitoringThreadStopTimeoutMilliseconds = 5000;
+
         private static readonly object SyncRoot = new object();
 
         private static readonly AutoResetEvent RescanSignal = new AutoResetEvent(false);
+
+        private static readonly ManualResetEvent MonitoringStopSignal = new ManualResetEvent(false);
 
         private static IntPtr _messageWindow;
 
@@ -72,6 +97,10 @@ namespace DiskInfoToolkit
         private static Thread _mediaWatchThread;
 
         private static bool _monitoringStarted;
+
+        private static bool _monitoringStopping;
+
+        private static bool _explicitMonitoringStarted;
 
         private static TimeSpan _mediaWatchLoopDelay = TimeSpan.FromSeconds(1);
 
@@ -243,7 +272,25 @@ namespace DiskInfoToolkit
         /// </summary>
         public static void StartMonitoring()
         {
+            lock (SyncRoot)
+            {
+                _explicitMonitoringStarted = true;
+            }
+
             EnsureMonitoringStarted();
+        }
+
+        /// <summary>
+        /// Stops explicit storage device monitoring when no event subscribers are registered.
+        /// </summary>
+        public static void StopMonitoring()
+        {
+            lock (SyncRoot)
+            {
+                _explicitMonitoringStarted = false;
+            }
+
+            StopMonitoringIfUnused();
         }
 
         /// <summary>
@@ -419,48 +466,176 @@ namespace DiskInfoToolkit
 
         private static void EnsureMonitoringStarted()
         {
+            while (true)
+            {
+                Thread messageLoopThread;
+                Thread rescanThread;
+                Thread mediaWatchThread;
+
+                lock (SyncRoot)
+                {
+                    if (!ShouldKeepMonitoringAliveLocked())
+                    {
+                        return;
+                    }
+
+                    if (_monitoringStarted && !_monitoringStopping)
+                    {
+                        return;
+                    }
+
+                    if (_monitoringStopping)
+                    {
+                        CaptureMonitoringThreadsLocked(out messageLoopThread, out rescanThread, out mediaWatchThread);
+                    }
+                    else
+                    {
+                        StartMonitoringLocked();
+                        return;
+                    }
+                }
+
+                WaitForMonitoringThreads(messageLoopThread, rescanThread, mediaWatchThread);
+
+                lock (SyncRoot)
+                {
+                    CompleteMonitoringStopLocked();
+                }
+            }
+        }
+
+        private static void StartMonitoringLocked()
+        {
+            _monitoringStopping = false;
+            MonitoringStopSignal.Reset();
+
+            _windowProcDelegate = WindowProc;
+
+            //Get the initial storage state before starting the monitoring threads, so that we have a baseline for change detection and can populate the media watch state
+            EnumerateStorageState(out var initialVisibleDisks, out var initialMediaWatchDevices, out var initialMediaStates);
+
+            _currentDisks = StorageDeviceCloneHelper.CloneList(initialVisibleDisks);
+            _mediaWatchDevices = StorageDeviceCloneHelper.CloneList(initialMediaWatchDevices);
+            _removableMediaStates = initialMediaStates;
+
+            //Start rescan thread, which rescans the storage state when signaled by the message loop thread or media watch loop
+            _rescanThread = new Thread(RescanLoop)
+            {
+                IsBackground = true,
+                Name = $"{nameof(Storage)}.{nameof(RescanLoop)}"
+            };
+            _rescanThread.Start();
+
+            //Start the message loop thread, which listens for device change notifications and signals rescans
+            _messageLoopThread = new Thread(MessageLoop)
+            {
+                IsBackground = true,
+                Name = $"{nameof(Storage)}.{nameof(MessageLoop)}"
+            };
+            _messageLoopThread.Start();
+
+            //Start the media watch loop thread, which periodically checks for removable media state changes and signals rescans
+            _mediaWatchThread = new Thread(MediaWatchLoop)
+            {
+                IsBackground = true,
+                Name = $"{nameof(Storage)}.{nameof(MediaWatchLoop)}"
+            };
+            _mediaWatchThread.Start();
+
+            _monitoringStarted = true;
+        }
+
+        private static void StopMonitoringIfUnused()
+        {
+            Thread messageLoopThread;
+            Thread rescanThread;
+            Thread mediaWatchThread;
+
             lock (SyncRoot)
             {
-                if (_monitoringStarted)
+                if (ShouldKeepMonitoringAliveLocked())
                 {
                     return;
                 }
 
-                _windowProcDelegate = WindowProc;
-
-                //Get the initial storage state before starting the monitoring threads, so that we have a baseline for change detection and can populate the media watch state
-                EnumerateStorageState(out var initialVisibleDisks, out var initialMediaWatchDevices, out var initialMediaStates);
-
-                _currentDisks = StorageDeviceCloneHelper.CloneList(initialVisibleDisks);
-                _mediaWatchDevices = StorageDeviceCloneHelper.CloneList(initialMediaWatchDevices);
-                _removableMediaStates = initialMediaStates;
-
-                //Start rescan thread, which rescans the storage state when signaled by the message loop thread or media watch loop
-                _rescanThread = new Thread(RescanLoop)
-                {
-                    IsBackground = true,
-                    Name = $"{nameof(Storage)}.{nameof(RescanLoop)}"
-                };
-                _rescanThread.Start();
-
-                //Start the message loop thread, which listens for device change notifications and signals rescans
-                _messageLoopThread = new Thread(MessageLoop)
-                {
-                    IsBackground = true,
-                    Name = $"{nameof(Storage)}.{nameof(MessageLoop)}"
-                };
-                _messageLoopThread.Start();
-
-                //Start the media watch loop thread, which periodically checks for removable media state changes and signals rescans
-                _mediaWatchThread = new Thread(MediaWatchLoop)
-                {
-                    IsBackground = true,
-                    Name = $"{nameof(Storage)}.{nameof(MediaWatchLoop)}"
-                };
-                _mediaWatchThread.Start();
-
-                _monitoringStarted = true;
+                RequestMonitoringStopLocked(out messageLoopThread, out rescanThread, out mediaWatchThread);
             }
+
+            WaitForMonitoringThreads(messageLoopThread, rescanThread, mediaWatchThread);
+
+            lock (SyncRoot)
+            {
+                CompleteMonitoringStopLocked();
+            }
+        }
+
+        private static bool ShouldKeepMonitoringAliveLocked()
+        {
+            return _devicesChanged != null || _explicitMonitoringStarted;
+        }
+
+        private static void RequestMonitoringStopLocked(out Thread messageLoopThread, out Thread rescanThread, out Thread mediaWatchThread)
+        {
+            CaptureMonitoringThreadsLocked(out messageLoopThread, out rescanThread, out mediaWatchThread);
+
+            if (!_monitoringStarted || _monitoringStopping)
+            {
+                return;
+            }
+
+            _monitoringStopping = true;
+
+            MonitoringStopSignal.Set();
+            RescanSignal.Set();
+
+            if (_messageWindow != IntPtr.Zero)
+            {
+                User32Native.PostMessage(_messageWindow, StopMonitoringMessage, UIntPtr.Zero, IntPtr.Zero);
+            }
+        }
+
+        private static void CaptureMonitoringThreadsLocked(out Thread messageLoopThread, out Thread rescanThread, out Thread mediaWatchThread)
+        {
+            messageLoopThread = _messageLoopThread;
+            rescanThread      = _rescanThread;
+            mediaWatchThread  = _mediaWatchThread;
+        }
+
+        private static void CompleteMonitoringStopLocked()
+        {
+            if (!_monitoringStopping)
+            {
+                return;
+            }
+
+            _monitoringStarted  = false;
+            _monitoringStopping = false;
+
+            _messageLoopThread = null;
+            _rescanThread      = null;
+            _mediaWatchThread  = null;
+
+            _messageWindow             = IntPtr.Zero;
+            _volumeNotificationHandle  = IntPtr.Zero;
+            _diskNotificationHandle    = IntPtr.Zero;
+            _windowProcDelegate        = null;
+        }
+
+        private static void WaitForMonitoringThreads(Thread messageLoopThread, Thread rescanThread, Thread mediaWatchThread)
+        {
+            WaitForMonitoringThread(messageLoopThread);
+            WaitForMonitoringThread(rescanThread);
+            WaitForMonitoringThread(mediaWatchThread);
+        }
+
+        private static void WaitForMonitoringThread(Thread thread)
+        {
+            if (thread == null || !thread.IsAlive || ReferenceEquals(Thread.CurrentThread, thread))
+            {
+                return;
+            }
+
+            thread.Join(MonitoringThreadStopTimeoutMilliseconds);
         }
 
         private static void MessageLoop()
@@ -472,7 +647,7 @@ namespace DiskInfoToolkit
 
             try
             {
-                while (User32Native.GetMessage(out var msg, _messageWindow, 0, 0) > 0)
+                while (!MonitoringStopSignal.WaitOne(0) && User32Native.GetMessage(out var msg, _messageWindow, 0, 0) > 0)
                 {
                     User32Native.TranslateMessage(ref msg);
                     User32Native.DispatchMessage(ref msg);
@@ -600,10 +775,14 @@ namespace DiskInfoToolkit
 
         private static void MediaWatchLoop()
         {
-            while (true)
+            while (!MonitoringStopSignal.WaitOne(0))
             {
                 var delay = MediaWatchLoopDelay;
-                Thread.Sleep(delay);
+
+                if (MonitoringStopSignal.WaitOne(delay))
+                {
+                    return;
+                }
 
                 try
                 {
@@ -678,10 +857,23 @@ namespace DiskInfoToolkit
 
         private static void RescanLoop()
         {
+            WaitHandle[] waitHandles =
+            {
+                RescanSignal,
+                MonitoringStopSignal
+            };
+
             while (true)
             {
-                RescanSignal.WaitOne();
-                Thread.Sleep(250);
+                if (WaitHandle.WaitAny(waitHandles) == 1)
+                {
+                    return;
+                }
+
+                if (MonitoringStopSignal.WaitOne(250))
+                {
+                    return;
+                }
 
                 while (RescanSignal.WaitOne(0))
                 {
@@ -693,6 +885,11 @@ namespace DiskInfoToolkit
                 }
                 catch
                 {
+                }
+
+                if (MonitoringStopSignal.WaitOne(0))
+                {
+                    return;
                 }
             }
         }

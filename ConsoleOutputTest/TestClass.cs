@@ -76,6 +76,9 @@ namespace ConsoleOutputTest
                 Thread.Sleep(TimeSpan.FromSeconds(1));
             }
 
+            //Unregister change event
+            Storage.DevicesChanged -= DevicesChanged;
+
             WriteOutput("### Updating all disks ###");
             WriteOutput();
 

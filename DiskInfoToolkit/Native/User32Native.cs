@@ -19,6 +19,8 @@ namespace DiskInfoToolkit.Native
 
         public const uint WM_DEVICECHANGE = 0x0219;
 
+        public const uint WM_APP = 0x8000;
+
         public const uint DBT_DEVICEARRIVAL = 0x8000;
 
         public const uint DBT_DEVICEREMOVECOMPLETE = 0x8004;
@@ -48,6 +50,10 @@ namespace DiskInfoToolkit.Native
 
         [DllImport(DLL_NAME)]
         public static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+        [DllImport(DLL_NAME, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool PostMessage(IntPtr hWnd, uint msg, UIntPtr wParam, IntPtr lParam);
 
         [DllImport(DLL_NAME)]
         public static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, UIntPtr wParam, IntPtr lParam);
