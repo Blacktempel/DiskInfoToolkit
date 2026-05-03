@@ -26,7 +26,7 @@ Note that the screenshots may not always represent the latest version of the app
 | **[DiskInfoViewer](https://github.com/Blacktempel/DiskInfoToolkit/tree/master/DiskInfoViewer)** <br/> Visualization of detected storage devices on your system. <br/> This supports adding / removing storage devices and updates data. <br/> UI is built using [Avalonia UI.](https://avaloniaui.net/) | .NET 8 |
 
 ## What platforms are supported ?
-We currently support Windows and Linux.
+We currently support Windows and Linux.<br/>
 There is currently no plan to support Mac / Apple Computers.
 
 ## Where can I download it ?
