@@ -13,6 +13,7 @@ using DiskInfoToolkit.Utilities;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
+using OS = BlackSharp.Core.Platform.OperatingSystem;
 
 namespace DiskInfoToolkit.Pnp
 {
@@ -28,6 +29,16 @@ namespace DiskInfoToolkit.Pnp
 
         public static List<PnpDiskNode> EnumerateDiskInterfaces()
         {
+            if (OS.IsLinux())
+            {
+                return LinuxSysfsDiskEnumerator.EnumerateDiskInterfaces();
+            }
+
+            if (!OS.IsWindows())
+            {
+                return new List<PnpDiskNode>();
+            }
+
             var result = new List<PnpDiskNode>();
 
             IntPtr infoSet = SetupAPINative.SetupDiGetClassDevs(ref DiskInterfaceGuid, null, IntPtr.Zero,

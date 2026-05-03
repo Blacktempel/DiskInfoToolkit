@@ -17,6 +17,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Resources;
 using System.Runtime.InteropServices;
+using OS = BlackSharp.Core.Platform.OperatingSystem;
 
 namespace DiskInfoToolkit
 {
@@ -231,7 +232,7 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(device));
             }
 
-            bool changed = StoragePartitionReader.PopulatePartitions(device, new WindowsStorageIoControl());
+            bool changed = StoragePartitionReader.PopulatePartitions(device, StorageIoControlFactory.Create());
             device.LastUpdatedUtc = DateTime.UtcNow;
             return changed;
         }
@@ -250,7 +251,7 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(device));
             }
 
-            var ioControl = new WindowsStorageIoControl();
+            var ioControl = StorageIoControlFactory.Create();
             var refreshed = StorageDeviceCloneHelper.Clone(device);
 
             if (refreshProbeData)
@@ -313,7 +314,7 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(device));
             }
 
-            var ioControl = new WindowsStorageIoControl();
+            var ioControl = StorageIoControlFactory.Create();
 
             SafeFileHandle handle = ioControl.OpenDevice(
                 device.DevicePath,
@@ -326,8 +327,20 @@ namespace DiskInfoToolkit
             {
                 var buffer = new byte[512];
 
-                Kernel32Native.SetFilePointerEx(handle, 0, IntPtr.Zero, 0);
-                Kernel32Native.ReadFile(handle, buffer, (uint)buffer.Length, out _, IntPtr.Zero);
+                if (OS.IsWindows())
+                {
+                    Kernel32Native.SetFilePointerEx(handle, 0, IntPtr.Zero, 0);
+                    Kernel32Native.ReadFile(handle, buffer, (uint)buffer.Length, out _, IntPtr.Zero);
+                }
+                else
+                {
+                    using (var stream = new FileStream(handle, FileAccess.Read))
+                    {
+#pragma warning disable CA2022 //Avoid inexact read with Stream.Read
+                        stream.Read(buffer, 0, buffer.Length);
+#pragma warning restore CA2022 //Avoid inexact read with Stream.Read
+                    }
+                }
             }
         }
 
@@ -415,11 +428,11 @@ namespace DiskInfoToolkit
 
         private static List<StorageDevice> EnumerateRawDisks()
         {
-            var engine = new StorageDetectionEngine(new WindowsStorageIoControl());
+            var engine = new StorageDetectionEngine(StorageIoControlFactory.Create());
 
             //Get the raw list of disks
             var disks = engine.GetDisks();
-            var ioControl = new WindowsStorageIoControl();
+            var ioControl = StorageIoControlFactory.Create();
 
             foreach (var disk in disks)
             {
@@ -640,26 +653,29 @@ namespace DiskInfoToolkit
 
         private static void MessageLoop()
         {
-            if (!CreateMessageWindow())
+            if (OS.IsWindows())
             {
-                return;
-            }
-
-            try
-            {
-                while (!MonitoringStopSignal.WaitOne(0) && User32Native.GetMessage(out var msg, _messageWindow, 0, 0) > 0)
+                if (!CreateMessageWindow())
                 {
-                    User32Native.TranslateMessage(ref msg);
-                    User32Native.DispatchMessage(ref msg);
+                    return;
                 }
-            }
-            finally
-            {
-                UnregisterStorageNotifications();
-                if (_messageWindow != IntPtr.Zero)
+
+                try
                 {
-                    User32Native.DestroyWindow(_messageWindow);
-                    _messageWindow = IntPtr.Zero;
+                    while (!MonitoringStopSignal.WaitOne(0) && User32Native.GetMessage(out var msg, _messageWindow, 0, 0) > 0)
+                    {
+                        User32Native.TranslateMessage(ref msg);
+                        User32Native.DispatchMessage(ref msg);
+                    }
+                }
+                finally
+                {
+                    UnregisterStorageNotifications();
+                    if (_messageWindow != IntPtr.Zero)
+                    {
+                        User32Native.DestroyWindow(_messageWindow);
+                        _messageWindow = IntPtr.Zero;
+                    }
                 }
             }
         }

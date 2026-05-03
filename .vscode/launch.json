@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ConsoleOutputTest Debug (sudo)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/ConsoleOutputTest/bin/Debug/net8.0/ConsoleOutputTest.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "pipeTransport": {
+        "pipeProgram": "${env:HOME}/.local/bin/vscode-sudo-askpass",
+        "pipeArgs": [],
+        "debuggerPath": "/home/USERNAME/.vscode/extensions/ms-dotnettools.csharp-*/.debugger/vsdbg",
+        "pipeCwd": "${workspaceFolder}",
+        "quoteArgs": false
+      }
+    }
+  ]
+}

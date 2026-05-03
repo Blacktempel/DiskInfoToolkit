@@ -9,6 +9,7 @@
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Native;
 using Microsoft.Win32.SafeHandles;
+using OS = BlackSharp.Core.Platform.OperatingSystem;
 
 namespace DiskInfoToolkit.Utilities
 {
@@ -19,6 +20,11 @@ namespace DiskInfoToolkit.Utilities
         public static bool TryGetDevicePowerState(string path, out bool isPoweredOn)
         {
             isPoweredOn = false;
+
+            if (!OS.IsWindows())
+            {
+                return false;
+            }
 
             //Open device for query operations only,
             //as opening for smart read/write operations can already spin up the disk.

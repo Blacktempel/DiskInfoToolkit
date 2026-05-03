@@ -136,7 +136,7 @@ namespace DiskInfoToolkit.Monitoring
                 return false;
             }
 
-            WindowsStorageIoControl ioControl = new WindowsStorageIoControl();
+            IStorageIoControl ioControl = StorageIoControlFactory.Create();
             SafeFileHandle handle = ioControl.OpenDevice(
                 device.DevicePath,
                 IoAccess.ReadAttributes,

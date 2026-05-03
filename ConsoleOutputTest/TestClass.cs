@@ -34,6 +34,21 @@ namespace ConsoleOutputTest
 
         public void DoTest()
         {
+            //Construct version information
+            var assembly = typeof(StorageDevice).Assembly;
+            var version = assembly?.GetName().Version;
+            var versionalInformation = assembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+
+            var detailedVersion = $"v{version.ToString(3)}";
+
+            if (!string.IsNullOrWhiteSpace(versionalInformation))
+            {
+                detailedVersion += $" ({versionalInformation})";
+            }
+
+            //Log version
+            WriteOutput($"Starting {nameof(DiskInfoToolkit)} {detailedVersion}");
+
             var sw = new Stopwatch();
             sw.Start();
 
