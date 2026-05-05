@@ -42,8 +42,8 @@ namespace DiskInfoToolkit.Partitions
             {
                 SafeFileHandle handle = ioControl.OpenDevice(
                     path,
-                    IoAccess.GenericRead,
-                    IoShare.ReadWrite,
+                    IoAccess.ReadAttributes,
+                    IoShare.All,
                     IoCreation.OpenExisting,
                     IoFlags.Normal);
 
@@ -184,8 +184,8 @@ namespace DiskInfoToolkit.Partitions
                 string drivePath = $@"\\.\{driveLetter}:";
                 SafeFileHandle handle = ioControl.OpenDevice(
                     drivePath,
-                    IoAccess.GenericRead,
-                    IoShare.ReadWrite,
+                    IoAccess.ReadAttributes,
+                    IoShare.All,
                     IoCreation.OpenExisting,
                     IoFlags.Normal);
 

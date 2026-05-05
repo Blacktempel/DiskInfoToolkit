@@ -68,7 +68,7 @@ namespace DiskInfoToolkit.Monitoring
             return result;
         }
 
-        public static void FilterNoMediaDevices(List<StorageDevice> devices)
+        public static void FilterNoMediaDevices(List<StorageDevice> devices, Dictionary<string, bool?> mediaStates)
         {
             if (devices == null)
             {
@@ -79,7 +79,20 @@ namespace DiskInfoToolkit.Monitoring
             {
                 var device = devices[i];
 
-                var mediaPresent = GetMediaPresentState(device);
+                bool? mediaPresent;
+                string key = StorageDeviceIdentityMatcher.GetStableKey(device);
+
+                if (mediaStates != null
+                 && !string.IsNullOrWhiteSpace(key)
+                 && mediaStates.TryGetValue(key, out var cachedState))
+                {
+                    mediaPresent = cachedState;
+                }
+                else
+                {
+                    mediaPresent = GetMediaPresentState(device);
+                }
+
                 if (mediaPresent.HasValue && !mediaPresent.Value)
                 {
                     devices.RemoveAt(i);
@@ -107,6 +120,11 @@ namespace DiskInfoToolkit.Monitoring
             if (device.Controller.Family == StorageControllerFamily.RealtekSd)
             {
                 return true;
+            }
+
+            if (IsUsbMassStorageDevice(device))
+            {
+                return IsUsbMassStorageCardReaderCandidate(device);
             }
 
             if (device.IsRemovable)
@@ -140,19 +158,9 @@ namespace DiskInfoToolkit.Monitoring
             SafeFileHandle handle = ioControl.OpenDevice(
                 device.DevicePath,
                 IoAccess.ReadAttributes,
-                IoShare.ReadWrite,
+                IoShare.All,
                 IoCreation.OpenExisting,
                 IoFlags.Normal);
-
-            if (handle == null || handle.IsInvalid)
-            {
-                handle = ioControl.OpenDevice(
-                    device.DevicePath,
-                    IoAccess.GenericRead,
-                    IoShare.ReadWrite,
-                    IoCreation.OpenExisting,
-                    IoFlags.Normal);
-            }
 
             if (handle == null || handle.IsInvalid)
             {
@@ -206,13 +214,27 @@ namespace DiskInfoToolkit.Monitoring
                     }
                 }
             }
-
             return false;
         }
 
         #endregion
 
         #region Private
+
+        private static bool IsUsbMassStorageDevice(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            if (device.TransportKind != StorageTransportKind.Usb && device.BusType != StorageBusType.Usb)
+            {
+                return false;
+            }
+
+            return device.Usb != null && device.Usb.IsMassStorageLike;
+        }
 
         private static bool IsUsbMassStorageCardReaderCandidate(StorageDevice device)
         {

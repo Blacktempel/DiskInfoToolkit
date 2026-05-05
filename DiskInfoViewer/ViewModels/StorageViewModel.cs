@@ -20,15 +20,17 @@ namespace DiskInfoViewer.ViewModels
             storage.Update();
             Storage = storage;
 
-            _UpdateTask = new Task(UpdateStorage);
-            _UpdateTask.Start();
+            _UpdateThread = new Thread(UpdateStorage);
+            _UpdateThread.Name = $"{nameof(DiskInfoViewer)}.{nameof(UpdateStorage)}";
+            _UpdateThread.IsBackground = true;
+            _UpdateThread.Start();
         }
 
         #endregion
 
         #region Fields
 
-        Task _UpdateTask;
+        Thread _UpdateThread;
 
         #endregion
 

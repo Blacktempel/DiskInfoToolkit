@@ -94,21 +94,7 @@ namespace DiskInfoToolkit.Probes
 
         public static bool IsNvmeBridge(StorageDevice device)
         {
-            if (device == null || !device.Controller.VendorID.HasValue)
-            {
-                return false;
-            }
-
-            switch (device.Controller.VendorID.Value)
-            {
-                case VendorIDConstants.Asmedia:
-                case VendorIDConstants.Realtek:
-                case VendorIDConstants.JMicron:
-                case VendorIDConstants.Samsung:
-                    return true;
-                default:
-                    return false;
-            }
+            return UsbNvmeSetupModeDetector.IsUsbNvmeCandidate(device);
         }
 
         public static bool IsUsbSatCapableBridge(StorageDevice device)

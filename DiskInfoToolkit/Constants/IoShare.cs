@@ -16,7 +16,11 @@ namespace DiskInfoToolkit.Constants
 
         public const uint Write = 0x00000002;
 
+        public const uint Delete = 0x00000004;
+
         public const uint ReadWrite = Read | Write;
+
+        public const uint All = Read | Write | Delete;
 
         #endregion
     }

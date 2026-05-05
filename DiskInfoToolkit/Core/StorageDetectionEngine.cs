@@ -14,6 +14,7 @@ using DiskInfoToolkit.Usb;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
+using OS = BlackSharp.Core.Platform.OperatingSystem;
 
 namespace DiskInfoToolkit.Core
 {
@@ -207,15 +208,29 @@ namespace DiskInfoToolkit.Core
                 return;
             }
 
+            var sw = new Stopwatch();
+            sw.Start();
+
             SafeFileHandle handle = ioControl.OpenDevice(
                 device.DevicePath,
-                IoAccess.GenericRead,
-                IoShare.ReadWrite,
+                IoAccess.None,
+                IoShare.All,
                 IoCreation.OpenExisting,
                 IoFlags.Normal);
 
+            sw.Stop();
+
             if (handle == null || handle.IsInvalid)
             {
+                if (OS.IsWindows())
+                {
+                    if (WindowsStorageIoControl.OpenDeviceTimeoutMilliseconds > 0
+                     && sw.ElapsedMilliseconds >= WindowsStorageIoControl.OpenDeviceTimeoutMilliseconds)
+                    {
+                        device.ProbeTrace.Add($"Standard property open skipped after {sw.ElapsedMilliseconds} ms.");
+                    }
+                }
+
                 return;
             }
 

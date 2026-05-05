@@ -423,7 +423,7 @@ namespace DiskInfoToolkit
             visibleDisks = StorageDeviceCloneHelper.CloneList(rawDisks);
 
             //Filter out devices that should not be visible
-            StorageMediaPresenceMonitor.FilterNoMediaDevices(visibleDisks);
+            StorageMediaPresenceMonitor.FilterNoMediaDevices(visibleDisks, mediaStates);
         }
 
         private static List<StorageDevice> EnumerateRawDisks()

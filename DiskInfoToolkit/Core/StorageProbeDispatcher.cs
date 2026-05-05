@@ -439,6 +439,11 @@ namespace DiskInfoToolkit.Core
                 return;
             }
 
+            if (UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "bridge-specific probing"))
+            {
+                return;
+            }
+
             bool any = false;
 
             //Verify that the device is a USB mass storage device before attempting mass-storage specific methods
@@ -452,6 +457,10 @@ namespace DiskInfoToolkit.Core
                     ProbeTraceRecorder.Add(device, "USB path: generic USB mass-storage fallback succeeded.");
                     any = true;
                 }
+                else if (UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "generic USB mass-storage fallback"))
+                {
+                    return;
+                }
 
                 //Now try some vendor-specific USB SMART methods for devices that don't support standard SMART
                 //as some USB bridges require vendor-specific commands to access SMART data
@@ -460,12 +469,20 @@ namespace DiskInfoToolkit.Core
                     ProbeTraceRecorder.Add(device, "USB path: vendor-specific USB SMART fallback succeeded.");
                     any = true;
                 }
+                else if (!device.SupportsSmart && UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "vendor-specific USB SMART fallback"))
+                {
+                    return;
+                }
 
                 //Try some SAT over SCSI methods for USB mass storage devices that don't support SMART or have very limited identity data
                 if (!HasSufficientUsbData(device) && TryProbeOperation(device, ioControl, StorageProbeOperation.ScsiSatIdentify, ScsiSatProbe.TryPopulateIdentifyData))
                 {
                     ProbeTraceRecorder.Add(device, "USB path: SAT identify fallback succeeded.");
                     any = true;
+                }
+                else if (!HasSufficientUsbData(device) && UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "SAT identify fallback"))
+                {
+                    return;
                 }
 
                 //Try SAT SMART if the device doesn't support SMART but might support it through SAT
@@ -474,6 +491,10 @@ namespace DiskInfoToolkit.Core
                     ProbeTraceRecorder.Add(device, "USB path: SAT SMART fallback succeeded.");
                     any = true;
                 }
+                else if (!device.SupportsSmart && UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "SAT SMART fallback"))
+                {
+                    return;
+                }
 
                 //Try various ATA identify/SMART methods for USB mass storage devices that don't have sufficient data
                 if (!HasUsefulIdentity(device) && TryProbeOperation(device, ioControl, StorageProbeOperation.StandardAtaIdentify, StandardAtaProbe.TryPopulateIdentifyData))
@@ -481,12 +502,20 @@ namespace DiskInfoToolkit.Core
                     ProbeTraceRecorder.Add(device, "USB path: ATA identify fallback succeeded.");
                     any = true;
                 }
+                else if (!HasUsefulIdentity(device) && UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "ATA identify fallback"))
+                {
+                    return;
+                }
 
                 //Try SMART probing for devices that don't report SMART support but might have it accessible through USB-specific commands
                 if (!device.SupportsSmart && TryProbeOperation(device, ioControl, StorageProbeOperation.AtaSmart, SmartProbe.TryPopulateSmartData))
                 {
                     ProbeTraceRecorder.Add(device, "USB path: ATA SMART fallback succeeded.");
                     any = true;
+                }
+                else if (!device.SupportsSmart && UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "ATA SMART fallback"))
+                {
+                    return;
                 }
             }
 
@@ -497,6 +526,10 @@ namespace DiskInfoToolkit.Core
                 ProbeTraceRecorder.Add(device, "USB path: final SCSI inquiry fallback succeeded.");
                 any = true;
             }
+            else if (!HasUsefulIdentity(device) && UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "final SCSI inquiry fallback"))
+            {
+                return;
+            }
 
             //Only attempt the SCSI capacity fallback if we don't already have size data,
             //as some USB bridges might return incorrect capacity data that could be worse than having no data at all
@@ -504,6 +537,10 @@ namespace DiskInfoToolkit.Core
             {
                 ProbeTraceRecorder.Add(device, "USB path: final SCSI capacity fallback succeeded.");
                 any = true;
+            }
+            else if ((device.DiskSizeBytes.GetValueOrDefault() == 0 && device.Scsi.LastLogicalBlockAddress == 0) && UsbBridgeProbe.ShouldStopAfterSevereUsbIoError(device, ioControl, "final SCSI capacity fallback"))
+            {
+                return;
             }
 
             if (any)

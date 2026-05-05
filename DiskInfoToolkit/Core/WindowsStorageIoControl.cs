@@ -7,11 +7,13 @@
  */
 
 using DiskInfoToolkit.Constants;
+using DiskInfoToolkit.Core.Windows;
 using DiskInfoToolkit.Interop;
 using DiskInfoToolkit.Models;
 using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -19,16 +21,65 @@ namespace DiskInfoToolkit.Core
 {
     public sealed class WindowsStorageIoControl : IStorageIoControl
     {
+        #region Fields
+
+        private const int DefaultOpenDeviceTimeoutMilliseconds = 120000;
+
+        private const int DefaultOpenDeviceTimeoutCooldownMilliseconds = 300000;
+
+        private static readonly ConcurrentDictionary<string, DateTime> OpenDeviceTimeouts = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
+        private static readonly object OpenDeviceWorkerSyncRoot = new object();
+
+        private static OpenDeviceWorker _openDeviceWorker;
+
+        private static int _openDeviceWorkerSequence;
+
+        #endregion
+
+        #region Properties
+
+        public static int OpenDeviceTimeoutMilliseconds { get; set; } = DefaultOpenDeviceTimeoutMilliseconds;
+
+        public static int OpenDeviceTimeoutCooldownMilliseconds { get; set; } = DefaultOpenDeviceTimeoutCooldownMilliseconds;
+
+        public uint LastIoControlCode { get; private set; }
+
+        public int LastIoControlError { get; private set; }
+
+        public bool LastIoControlSucceeded { get; private set; }
+
+        public bool LastIoControlWasSevereDeviceError
+        {
+            get { return !LastIoControlSucceeded && IsSevereDeviceIoError(LastIoControlError); }
+        }
+
+        #endregion
+
         #region Public
 
         public SafeFileHandle OpenDevice(string path, uint desiredAccess, uint shareMode, uint creationDisposition, uint flagsAndAttributes)
         {
-            return Kernel32Native.CreateFile(path, desiredAccess, shareMode, IntPtr.Zero, creationDisposition, flagsAndAttributes, IntPtr.Zero);
+            LastIoControlCode      = 0;
+            LastIoControlError     = 0;
+            LastIoControlSucceeded = true;
+
+            if (IsOpenDeviceInTimeoutCooldown(path))
+            {
+                return CreateInvalidFileHandle();
+            }
+
+            if (OpenDeviceTimeoutMilliseconds <= 0)
+            {
+                return OpenDeviceCore(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes);
+            }
+
+            return OpenDeviceWithTimeout(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes, OpenDeviceTimeoutMilliseconds);
         }
 
         public bool SendRawIoControl(SafeFileHandle handle, uint ioControlCode, byte[] inBuffer, byte[] outBuffer, out int bytesReturned)
         {
-            return Kernel32Native.DeviceIoControl(
+            bool success = Kernel32Native.DeviceIoControl(
                 handle,
                 ioControlCode,
                 inBuffer,
@@ -37,6 +88,14 @@ namespace DiskInfoToolkit.Core
                 outBuffer != null ? outBuffer.Length : 0,
                 out bytesReturned,
                 IntPtr.Zero);
+
+            int lastError = Marshal.GetLastWin32Error();
+
+            LastIoControlCode      = ioControlCode;
+            LastIoControlSucceeded = success;
+            LastIoControlError     = success ? 0 : lastError;
+
+            return success;
         }
 
         public bool TryGetStorageDeviceDescriptor(SafeFileHandle handle, out StorageDeviceDescriptorInfo descriptor)
@@ -319,7 +378,23 @@ namespace DiskInfoToolkit.Core
 
         #endregion
 
+        #region Internal
+
+        internal static SafeFileHandle OpenDeviceCore(string path, uint desiredAccess, uint shareMode, uint creationDisposition, uint flagsAndAttributes)
+        {
+            return Kernel32Native.CreateFile(path, desiredAccess, shareMode, IntPtr.Zero, creationDisposition, flagsAndAttributes, IntPtr.Zero);
+        }
+
+        #endregion
+
         #region Private
+
+        public static bool IsSevereDeviceIoError(int error)
+        {
+            return error == 55    //ERROR_DEV_NOT_EXIST
+                || error == 1117  //ERROR_IO_DEVICE
+                || error == 1167; //ERROR_DEVICE_NOT_CONNECTED
+        }
 
         private static string ReadAnsiString(byte[] buffer, int offset)
         {
@@ -335,6 +410,111 @@ namespace DiskInfoToolkit.Core
             }
 
             return StringUtil.TrimStorageString(Encoding.ASCII.GetString(buffer, offset, end - offset));
+        }
+
+        private static SafeFileHandle OpenDeviceWithTimeout(string path, uint desiredAccess, uint shareMode, uint creationDisposition, uint flagsAndAttributes, int timeoutMilliseconds)
+        {
+            var request = new OpenDeviceRequest(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes);
+
+            try
+            {
+                OpenDeviceWorker worker;
+
+                lock (OpenDeviceWorkerSyncRoot)
+                {
+                    worker = GetOrCreateOpenDeviceWorker();
+                    if (!worker.TryEnqueue(request))
+                    {
+                        worker.MarkAbandoned();
+                        worker = CreateOpenDeviceWorker();
+
+                        if (!worker.TryEnqueue(request))
+                        {
+                            RememberOpenDeviceTimeout(path);
+                            return CreateInvalidFileHandle();
+                        }
+                    }
+
+                    if (!request.Wait(timeoutMilliseconds) && request.MarkTimedOut())
+                    {
+                        worker.MarkAbandoned();
+
+                        if (ReferenceEquals(_openDeviceWorker, worker))
+                        {
+                            _openDeviceWorker = null;
+                        }
+
+                        RememberOpenDeviceTimeout(path);
+                        return CreateInvalidFileHandle();
+                    }
+                }
+
+                if (request.Exception != null)
+                {
+                    throw request.Exception;
+                }
+
+                return request.Result ?? CreateInvalidFileHandle();
+            }
+            finally
+            {
+                request.Dispose();
+            }
+        }
+
+        private static OpenDeviceWorker GetOrCreateOpenDeviceWorker()
+        {
+            if (_openDeviceWorker == null || !_openDeviceWorker.CanAcceptWork)
+            {
+                _openDeviceWorker = CreateOpenDeviceWorker();
+            }
+
+            return _openDeviceWorker;
+        }
+
+        private static OpenDeviceWorker CreateOpenDeviceWorker()
+        {
+            int id = Interlocked.Increment(ref _openDeviceWorkerSequence);
+            return new OpenDeviceWorker(id);
+        }
+
+        private static bool IsOpenDeviceInTimeoutCooldown(string path)
+        {
+            string key = StringUtil.TrimStorageString(path);
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                return false;
+            }
+
+            if (!OpenDeviceTimeouts.TryGetValue(key, out var blockedUntilUtc))
+            {
+                return false;
+            }
+
+            if (DateTime.UtcNow < blockedUntilUtc)
+            {
+                return true;
+            }
+
+            OpenDeviceTimeouts.TryRemove(key, out _);
+            return false;
+        }
+
+        private static void RememberOpenDeviceTimeout(string path)
+        {
+            string key = StringUtil.TrimStorageString(path);
+            if (string.IsNullOrWhiteSpace(key) || OpenDeviceTimeoutCooldownMilliseconds <= 0)
+            {
+                return;
+            }
+
+            var blockedUntilUtc = DateTime.UtcNow.AddMilliseconds(OpenDeviceTimeoutCooldownMilliseconds);
+            OpenDeviceTimeouts[key] = blockedUntilUtc;
+        }
+
+        private static SafeFileHandle CreateInvalidFileHandle()
+        {
+            return new SafeFileHandle(IntPtr.Zero, true);
         }
 
         #endregion

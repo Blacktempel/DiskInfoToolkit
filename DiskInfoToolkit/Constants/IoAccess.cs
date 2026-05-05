@@ -12,6 +12,8 @@ namespace DiskInfoToolkit.Constants
     {
         #region Fields
 
+        public const uint None = 0x00000000;
+
         public const uint GenericRead = 0x80000000;
 
         public const uint GenericWrite = 0x40000000;
