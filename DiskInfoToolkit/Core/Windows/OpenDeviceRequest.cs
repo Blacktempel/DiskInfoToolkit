@@ -41,6 +41,8 @@ namespace DiskInfoToolkit.Core.Windows
 
         private bool _timedOut;
 
+        private bool _disposed;
+
         #endregion
 
         #region Properties
@@ -84,28 +86,52 @@ namespace DiskInfoToolkit.Core.Windows
 
         public void Complete(SafeFileHandle result, Exception exception)
         {
+            bool shouldDispose = false;
+
             lock (_syncRoot)
             {
                 if (_timedOut)
                 {
-                    if (result != null)
-                    {
-                        result.Dispose();
-                    }
-
+                    result?.Dispose();
                     return;
                 }
 
                 Result = result;
                 Exception = exception;
                 _completedState = true;
-                _completed.Set();
+
+                if (_disposed)
+                {
+                    shouldDispose = true;
+                }
+                else
+                {
+                    _completed.Set();
+                }
+            }
+
+            if (shouldDispose)
+            {
+                _completed.Dispose();
             }
         }
 
         public void Dispose()
         {
-            _completed.Dispose();
+            lock (_syncRoot)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _disposed = true;
+
+                if (_completedState)
+                {
+                    _completed.Dispose();
+                }
+            }
         }
 
         #endregion
