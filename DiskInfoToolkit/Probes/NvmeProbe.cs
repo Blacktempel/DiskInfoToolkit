@@ -136,6 +136,53 @@ namespace DiskInfoToolkit.Probes
             }
         }
 
+        public static bool TryRefreshStandardNvmeSmartLog(StorageDevice device, IStorageIoControl ioControl)
+        {
+            if (device == null || ioControl == null || string.IsNullOrWhiteSpace(device.DevicePath))
+            {
+                return false;
+            }
+
+            SafeFileHandle handle = ioControl.OpenDevice(
+                device.DevicePath,
+                IoAccess.GenericRead | IoAccess.GenericWrite,
+                IoShare.ReadWrite,
+                IoCreation.OpenExisting,
+                IoFlags.Normal);
+
+            if (handle == null || handle.IsInvalid)
+            {
+                return false;
+            }
+
+            using (handle)
+            {
+                bool smartOk =
+                    TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdAll, out var smartLogData)
+                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdAll, out smartLogData)
+                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData)
+                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData)
+                    //Micron driver (mtinvme.sys) wants namespace 0
+                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdZero, out smartLogData)
+                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdZero, out smartLogData);
+
+                if (!smartOk)
+                {
+                    return false;
+                }
+
+                device.Nvme.SmartLogData = smartLogData;
+
+                NvmeSmartLogParser.ApplySmartLog(device, smartLogData);
+
+                device.SupportsSmart = true;
+                device.BusType = StorageBusType.Nvme;
+                device.TransportKind = StorageTransportKind.Nvme;
+
+                return true;
+            }
+        }
+
         #endregion
 
         #region Private

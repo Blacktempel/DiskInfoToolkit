@@ -106,6 +106,45 @@ namespace DiskInfoToolkit.Probes
             }
         }
 
+        public static bool TryRefreshIntelNvmeSmartLog(StorageDevice device, IStorageIoControl ioControl)
+        {
+            if (device == null || ioControl == null || string.IsNullOrWhiteSpace(device.DevicePath))
+            {
+                return false;
+            }
+
+            SafeFileHandle handle = ioControl.OpenDevice(
+                device.DevicePath,
+                IoAccess.GenericRead | IoAccess.GenericWrite,
+                IoShare.ReadWrite,
+                IoCreation.OpenExisting,
+                IoFlags.Normal);
+
+            if (handle == null || handle.IsInvalid)
+            {
+                return false;
+            }
+
+            using (handle)
+            {
+                if (!TrySmartLog(ioControl, handle, device, out var smartLogData))
+                {
+                    return false;
+                }
+
+                device.Nvme.IntelSmartLogData = smartLogData;
+                device.Nvme.SmartLogData = smartLogData;
+
+                NvmeSmartLogParser.ApplySmartLog(device, smartLogData);
+
+                device.SupportsSmart = true;
+                device.BusType = StorageBusType.Nvme;
+                device.TransportKind = StorageTransportKind.Nvme;
+
+                return true;
+            }
+        }
+
         #endregion
 
         #region Private

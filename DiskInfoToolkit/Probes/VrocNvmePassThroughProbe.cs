@@ -57,6 +57,7 @@ namespace DiskInfoToolkit.Probes
             }
 
             string scsiPortPath = StoragePathBuilder.BuildScsiPortPath(device.Scsi.PortNumber.Value);
+
             SafeFileHandle handle = ioControl.OpenDevice(
                 scsiPortPath,
                 IoAccess.GenericRead | IoAccess.GenericWrite,
@@ -77,6 +78,7 @@ namespace DiskInfoToolkit.Probes
                 {
                     device.Nvme.IdentifyNamespaceData = namespaceData;
                     NvmeNamespaceParser.ApplyNamespaceData(device, namespaceData);
+
                     any = true;
                 }
 
@@ -84,6 +86,7 @@ namespace DiskInfoToolkit.Probes
                 {
                     device.Nvme.IdentifyControllerData = controllerData;
                     IntelNvmeProbeUtil.ApplyIdentifyControllerStrings(device, controllerData);
+
                     any = true;
                 }
 
@@ -113,6 +116,48 @@ namespace DiskInfoToolkit.Probes
                 }
 
                 return any;
+            }
+        }
+
+        public static bool TryRefreshSmartLog(StorageDevice device, IStorageIoControl ioControl)
+        {
+            if (device == null || ioControl == null || device.Controller.Family != StorageControllerFamily.IntelVroc || !device.Scsi.PortNumber.HasValue)
+            {
+                return false;
+            }
+
+            string scsiPortPath = StoragePathBuilder.BuildScsiPortPath(device.Scsi.PortNumber.Value);
+
+            SafeFileHandle handle = ioControl.OpenDevice(
+                scsiPortPath,
+                IoAccess.GenericRead | IoAccess.GenericWrite,
+                IoShare.ReadWrite,
+                IoCreation.OpenExisting,
+                IoFlags.Normal);
+
+            if (handle == null || handle.IsInvalid)
+            {
+                return false;
+            }
+
+            using (handle)
+            {
+                if (!TryReadSmartLog(ioControl, handle, device, out var smartLogData))
+                {
+                    return false;
+                }
+
+                device.Nvme.SmartLogData = smartLogData;
+                device.Nvme.IntelSmartLogData = smartLogData;
+
+                NvmeSmartLogParser.ApplySmartLog(device, smartLogData);
+
+                device.SupportsSmart = true;
+                device.TransportKind = StorageTransportKind.Nvme;
+                device.BusType = StorageBusType.Nvme;
+                device.AlternateDevicePath = scsiPortPath;
+
+                return true;
             }
         }
 

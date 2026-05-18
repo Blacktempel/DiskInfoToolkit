@@ -6,6 +6,9 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using DiskInfoToolkit.Probes;
+using DiskInfoToolkit.Smart;
+
 namespace DiskInfoToolkit
 {
     /// <summary>
@@ -75,6 +78,31 @@ namespace DiskInfoToolkit
         /// Gets or sets the successful standard-property and strategy-specific probe operations in execution order.
         /// </summary>
         internal List<StorageProbeOperation> SuccessfulOperations { get; set; } = new List<StorageProbeOperation>();
+
+        /// <summary>
+        /// Gets or sets the cached ATA SMART read path that succeeded during the full probe.
+        /// </summary>
+        internal SmartProbeReadPath AtaSmartReadPath { get; set; }
+
+        /// <summary>
+        /// Gets or sets the cached SAT SMART flavor that succeeded during the full probe.
+        /// </summary>
+        internal SatPassThroughFlavor? SatSmartFlavor { get; set; }
+
+        /// <summary>
+        /// Gets or sets the cached SAT SMART target/head value that succeeded during the full probe.
+        /// </summary>
+        internal byte? SatSmartTarget { get; set; }
+
+        /// <summary>
+        /// Gets or sets the cached SMART thresholds read during the full probe.
+        /// </summary>
+        internal Dictionary<byte, byte> CachedSmartThresholds { get; set; } = new Dictionary<byte, byte>();
+
+        /// <summary>
+        /// Gets or sets the number of consecutive cached-refresh cycles where all volatile operations failed.
+        /// </summary>
+        internal int ConsecutiveRefreshFailureCount { get; set; }
 
         #endregion
 
@@ -257,6 +285,39 @@ namespace DiskInfoToolkit
         public bool Contains(StorageProbeOperation operation)
         {
             return SuccessfulOperations.Contains(operation);
+        }
+
+        /// <summary>
+        /// Records SMART threshold values that were read during a full probe.
+        /// </summary>
+        /// <param name="attributes">The SMART attributes containing threshold values.</param>
+        internal void RecordSmartThresholds(IEnumerable<SmartAttributeEntry> attributes)
+        {
+            if (attributes == null)
+            {
+                return;
+            }
+
+            if (CachedSmartThresholds == null)
+            {
+                CachedSmartThresholds = new Dictionary<byte, byte>();
+            }
+
+            foreach (var attribute in attributes)
+            {
+                if (attribute != null)
+                {
+                    CachedSmartThresholds[attribute.ID] = attribute.ThresholdValue;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resets the cached refresh failure counter.
+        /// </summary>
+        internal void ResetRefreshFailures()
+        {
+            ConsecutiveRefreshFailureCount = 0;
         }
 
         #endregion

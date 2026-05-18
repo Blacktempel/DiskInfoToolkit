@@ -67,47 +67,37 @@ namespace DiskInfoToolkit.Probes
 
         public static bool TryPopulateSmartData(StorageDevice device, IStorageIoControl ioControl)
         {
+            return TryPopulateSmartData(device, ioControl, false);
+        }
+
+        public static bool TryRefreshSmartData(StorageDevice device, IStorageIoControl ioControl)
+        {
+            return TryPopulateSmartData(device, ioControl, true);
+        }
+
+        private static bool TryPopulateSmartData(StorageDevice device, IStorageIoControl ioControl, bool refreshOnly)
+        {
             if (device == null || ioControl == null || string.IsNullOrWhiteSpace(device.DevicePath))
             {
                 return false;
             }
 
-            var flavor = GetFlavor(device);
+            SafeFileHandle handle = ioControl.OpenDevice(
+                device.DevicePath,
+                IoAccess.GenericRead | IoAccess.GenericWrite,
+                IoShare.ReadWrite,
+                IoCreation.OpenExisting,
+                IoFlags.Normal);
 
-            byte[] smartData = null;
-            byte[] smartThresholds = null;
-
-            bool ok =
-                (TrySmartRead(ioControl, device.DevicePath, 0xA0, flavor, SmartReadDataSubcommand, out smartData)
-                    && TrySmartRead(ioControl, device.DevicePath, 0xA0, flavor, SmartReadThresholdSubcommand, out smartThresholds))
-                || (TrySmartRead(ioControl, device.DevicePath, 0xB0, flavor, SmartReadDataSubcommand, out smartData)
-                    && TrySmartRead(ioControl, device.DevicePath, 0xB0, flavor, SmartReadThresholdSubcommand, out smartThresholds));
-
-            if (!ok)
-            {
-                //Fallback: try generic SAT
-                ok =
-                    (TrySmartRead(ioControl, device.DevicePath, 0xA0, SatPassThroughFlavor.GenericSat, SmartReadDataSubcommand, out smartData)
-                        && TrySmartRead(ioControl, device.DevicePath, 0xA0, SatPassThroughFlavor.GenericSat, SmartReadThresholdSubcommand, out smartThresholds))
-                    || (TrySmartRead(ioControl, device.DevicePath, 0xB0, SatPassThroughFlavor.GenericSat, SmartReadDataSubcommand, out smartData)
-                        && TrySmartRead(ioControl, device.DevicePath, 0xB0, SatPassThroughFlavor.GenericSat, SmartReadThresholdSubcommand, out smartThresholds));
-
-                if (!ok)
-                {
-                    return false;
-                }
-            }
-
-            var attributes = SmartProbe.ParseSmartPages(smartData, smartThresholds);
-            if (attributes == null || attributes.Count == 0)
+            if (handle == null || handle.IsInvalid)
             {
                 return false;
             }
 
-            device.SupportsSmart = true;
-            device.SmartAttributes = attributes;
-
-            return true;
+            using (handle)
+            {
+                return TryPopulateSmartDataFromHandle(device, ioControl, handle, refreshOnly);
+            }
         }
 
         public static bool TryPopulateIdentifyDataFromHandle(StorageDevice device, IStorageIoControl ioControl, SafeFileHandle handle)
@@ -136,6 +126,11 @@ namespace DiskInfoToolkit.Probes
 
         public static bool TryPopulateSmartDataFromHandle(StorageDevice device, IStorageIoControl ioControl, SafeFileHandle handle)
         {
+            return TryPopulateSmartDataFromHandle(device, ioControl, handle, false);
+        }
+
+        private static bool TryPopulateSmartDataFromHandle(StorageDevice device, IStorageIoControl ioControl, SafeFileHandle handle, bool refreshOnly)
+        {
             if (device == null || ioControl == null || handle == null || handle.IsInvalid)
             {
                 return false;
@@ -143,60 +138,126 @@ namespace DiskInfoToolkit.Probes
 
             var flavor = GetFlavor(device);
 
+            bool readThresholds = !refreshOnly;
+
             byte[] smartData = null;
             byte[] smartThresholds = null;
 
-            bool ok =
-                (TrySmartReadOnHandle(ioControl, handle, 0xA0, flavor, SmartReadDataSubcommand, out smartData)
-                    && TrySmartReadOnHandle(ioControl, handle, 0xA0, flavor, SmartReadThresholdSubcommand, out smartThresholds))
-                || (TrySmartReadOnHandle(ioControl, handle, 0xB0, flavor, SmartReadDataSubcommand, out smartData)
-                    && TrySmartReadOnHandle(ioControl, handle, 0xB0, flavor, SmartReadThresholdSubcommand, out smartThresholds));
+            byte succeededTarget = 0;
+            SatPassThroughFlavor succeededFlavor = flavor;
 
-            if (!ok)
+            bool ok = false;
+
+            if (refreshOnly && device.ProbePlan != null && device.ProbePlan.SatSmartFlavor.HasValue && device.ProbePlan.SatSmartTarget.HasValue)
             {
-                if (TryEnableSmartOnHandle(ioControl, handle, 0xA0, flavor)
-                    && TrySmartReadOnHandle(ioControl, handle, 0xA0, flavor, SmartReadDataSubcommand, out smartData)
-                    && TrySmartReadOnHandle(ioControl, handle, 0xA0, flavor, SmartReadThresholdSubcommand, out smartThresholds))
+                succeededFlavor = device.ProbePlan.SatSmartFlavor.Value;
+                succeededTarget = device.ProbePlan.SatSmartTarget.Value;
+
+                ok = TrySmartReadPagesOnHandle(ioControl, handle, succeededTarget, succeededFlavor, readThresholds, out smartData, out smartThresholds);
+            }
+            else if (refreshOnly)
+            {
+                ok = TrySmartReadPagesOnHandle(ioControl, handle, 0xA0, flavor, readThresholds, out smartData, out smartThresholds);
+
+                if (ok)
                 {
-                    ok = true;
+                    succeededTarget = 0xA0;
+                    succeededFlavor = flavor;
                 }
-                else if (TryEnableSmartOnHandle(ioControl, handle, 0xB0, flavor)
-                    && TrySmartReadOnHandle(ioControl, handle, 0xB0, flavor, SmartReadDataSubcommand, out smartData)
-                    && TrySmartReadOnHandle(ioControl, handle, 0xB0, flavor, SmartReadThresholdSubcommand, out smartThresholds))
+                else if (TrySmartReadPagesOnHandle(ioControl, handle, 0xB0, flavor, readThresholds, out smartData, out smartThresholds))
                 {
                     ok = true;
+
+                    succeededTarget = 0xB0;
+                    succeededFlavor = flavor;
+                }
+                else if (TrySmartReadPagesOnHandle(ioControl, handle, 0xA0, SatPassThroughFlavor.GenericSat, readThresholds, out smartData, out smartThresholds))
+                {
+                    ok = true;
+
+                    succeededTarget = 0xA0;
+                    succeededFlavor = SatPassThroughFlavor.GenericSat;
+                }
+                else if (TrySmartReadPagesOnHandle(ioControl, handle, 0xB0, SatPassThroughFlavor.GenericSat, readThresholds, out smartData, out smartThresholds))
+                {
+                    ok = true;
+
+                    succeededTarget = 0xB0;
+                    succeededFlavor = SatPassThroughFlavor.GenericSat;
                 }
             }
-
-            if (!ok)
+            else if (!refreshOnly)
             {
-                //Fallback: try generic SAT
-                ok =
-                    (TrySmartReadOnHandle(ioControl, handle, 0xA0, SatPassThroughFlavor.GenericSat, SmartReadDataSubcommand, out smartData)
-                        && TrySmartReadOnHandle(ioControl, handle, 0xA0, SatPassThroughFlavor.GenericSat, SmartReadThresholdSubcommand, out smartThresholds))
-                    || (TrySmartReadOnHandle(ioControl, handle, 0xB0, SatPassThroughFlavor.GenericSat, SmartReadDataSubcommand, out smartData)
-                        && TrySmartReadOnHandle(ioControl, handle, 0xB0, SatPassThroughFlavor.GenericSat, SmartReadThresholdSubcommand, out smartThresholds));
+                ok = TrySmartReadPagesOnHandle(ioControl, handle, 0xA0, flavor, readThresholds, out smartData, out smartThresholds);
+
+                if (ok)
+                {
+                    succeededTarget = 0xA0;
+                    succeededFlavor = flavor;
+                }
+                else if (TrySmartReadPagesOnHandle(ioControl, handle, 0xB0, flavor, readThresholds, out smartData, out smartThresholds))
+                {
+                    ok = true;
+
+                    succeededTarget = 0xB0;
+                    succeededFlavor = flavor;
+                }
+                else if (TrySmartReadPagesOnHandle(ioControl, handle, 0xA0, SatPassThroughFlavor.GenericSat, readThresholds, out smartData, out smartThresholds))
+                {
+                    ok = true;
+
+                    succeededTarget = 0xA0;
+                    succeededFlavor = SatPassThroughFlavor.GenericSat;
+                }
+                else if (TrySmartReadPagesOnHandle(ioControl, handle, 0xB0, SatPassThroughFlavor.GenericSat, readThresholds, out smartData, out smartThresholds))
+                {
+                    ok = true;
+
+                    succeededTarget = 0xB0;
+                    succeededFlavor = SatPassThroughFlavor.GenericSat;
+                }
 
                 if (!ok)
                 {
-                    if (TryEnableSmartOnHandle(ioControl, handle, 0xA0, SatPassThroughFlavor.GenericSat)
-                     && TrySmartReadOnHandle(ioControl, handle, 0xA0, SatPassThroughFlavor.GenericSat, SmartReadDataSubcommand, out smartData)
-                     && TrySmartReadOnHandle(ioControl, handle, 0xA0, SatPassThroughFlavor.GenericSat, SmartReadThresholdSubcommand, out smartThresholds))
+                    ok = TryEnableAndReadSmartPagesOnHandle(ioControl, handle, 0xA0, flavor, readThresholds, out smartData, out smartThresholds);
+
+                    if (ok)
                     {
-                        ok = true;
+                        succeededTarget = 0xA0;
+                        succeededFlavor = flavor;
                     }
-                    else if (TryEnableSmartOnHandle(ioControl, handle, 0xB0, SatPassThroughFlavor.GenericSat)
-                          && TrySmartReadOnHandle(ioControl, handle, 0xB0, SatPassThroughFlavor.GenericSat, SmartReadDataSubcommand, out smartData)
-                          && TrySmartReadOnHandle(ioControl, handle, 0xB0, SatPassThroughFlavor.GenericSat, SmartReadThresholdSubcommand, out smartThresholds))
+                    else if (TryEnableAndReadSmartPagesOnHandle(ioControl, handle, 0xB0, flavor, readThresholds, out smartData, out smartThresholds))
                     {
                         ok = true;
+
+                        succeededTarget = 0xB0;
+                        succeededFlavor = flavor;
+                    }
+                    else if (TryEnableAndReadSmartPagesOnHandle(ioControl, handle, 0xA0, SatPassThroughFlavor.GenericSat, readThresholds, out smartData, out smartThresholds))
+                    {
+                        ok = true;
+
+                        succeededTarget = 0xA0;
+                        succeededFlavor = SatPassThroughFlavor.GenericSat;
+                    }
+                    else if (TryEnableAndReadSmartPagesOnHandle(ioControl, handle, 0xB0, SatPassThroughFlavor.GenericSat, readThresholds, out smartData, out smartThresholds))
+                    {
+                        ok = true;
+
+                        succeededTarget = 0xB0;
+                        succeededFlavor = SatPassThroughFlavor.GenericSat;
                     }
                 }
+            }
 
+            if (!ok)
+            {
                 return false;
             }
 
-            var attributes = SmartProbe.ParseSmartPages(smartData, smartThresholds);
+            var cachedThresholds = device.ProbePlan != null ? device.ProbePlan.CachedSmartThresholds : null;
+
+            var attributes = SmartProbe.ParseSmartPages(smartData, smartThresholds, cachedThresholds);
             if (attributes == null || attributes.Count == 0)
             {
                 return false;
@@ -205,6 +266,17 @@ namespace DiskInfoToolkit.Probes
             device.SupportsSmart = true;
             device.SmartAttributes = attributes;
 
+            if (device.ProbePlan != null)
+            {
+                device.ProbePlan.SatSmartTarget = succeededTarget;
+                device.ProbePlan.SatSmartFlavor = succeededFlavor;
+
+                if (!refreshOnly)
+                {
+                    device.ProbePlan.RecordSmartThresholds(attributes);
+                }
+            }
+
             return true;
         }
 
@@ -212,11 +284,35 @@ namespace DiskInfoToolkit.Probes
 
         #region Private
 
+        private static bool TrySmartReadPagesOnHandle(IStorageIoControl ioControl, SafeFileHandle handle, byte target, SatPassThroughFlavor flavor, bool readThresholds, out byte[] smartData, out byte[] smartThresholds)
+        {
+            smartData = null;
+            smartThresholds = null;
+
+            return TrySmartReadOnHandle(ioControl, handle, target, flavor, SmartReadDataSubcommand, out smartData)
+                && (!readThresholds || TrySmartReadOnHandle(ioControl, handle, target, flavor, SmartReadThresholdSubcommand, out smartThresholds));
+        }
+
+        private static bool TryEnableAndReadSmartPagesOnHandle(IStorageIoControl ioControl, SafeFileHandle handle, byte target, SatPassThroughFlavor flavor, bool readThresholds, out byte[] smartData, out byte[] smartThresholds)
+        {
+            smartData = null;
+            smartThresholds = null;
+
+            return TryEnableSmartOnHandle(ioControl, handle, target, flavor)
+                && TrySmartReadPagesOnHandle(ioControl, handle, target, flavor, readThresholds, out smartData, out smartThresholds);
+        }
+
         private static bool TryIdentify(IStorageIoControl ioControl, string devicePath, byte target, SatPassThroughFlavor flavor, out byte[] identifyData)
         {
             identifyData = null;
 
-            SafeFileHandle handle = ioControl.OpenDevice(devicePath, IoAccess.GenericRead | IoAccess.GenericWrite, IoShare.ReadWrite, IoCreation.OpenExisting, IoFlags.Normal);
+            SafeFileHandle handle = ioControl.OpenDevice(
+                devicePath,
+                IoAccess.GenericRead | IoAccess.GenericWrite,
+                IoShare.ReadWrite,
+                IoCreation.OpenExisting,
+                IoFlags.Normal);
+
             if (handle == null || handle.IsInvalid)
             {
                 return false;
@@ -247,44 +343,6 @@ namespace DiskInfoToolkit.Probes
                 Buffer.BlockCopy(response.DataBuf, 0, identifyData, 0, identifyData.Length);
 
                 return NvmeProbeUtil.HasAnyNonZeroByte(identifyData);
-            }
-        }
-
-        private static bool TrySmartRead(IStorageIoControl ioControl, string devicePath, byte target, SatPassThroughFlavor flavor, byte feature, out byte[] data)
-        {
-            data = null;
-
-            SafeFileHandle handle = ioControl.OpenDevice(devicePath, IoAccess.GenericRead | IoAccess.GenericWrite, IoShare.ReadWrite, IoCreation.OpenExisting, IoFlags.Normal);
-            if (handle == null || handle.IsInvalid)
-            {
-                return false;
-            }
-
-            using (handle)
-            {
-                var request = SCSI_PASS_THROUGH_WITH_BUFFERS.CreateDefault();
-                request.Spt.Length = (ushort)Marshal.SizeOf<SCSI_PASS_THROUGH>();
-                request.Spt.SenseInfoLength = 24;
-                request.Spt.DataIn = 1;
-                request.Spt.DataTransferLength = DataLength;
-                request.Spt.TimeOutValue = 2;
-                request.Spt.DataBufferOffset = (uint)Marshal.OffsetOf<SCSI_PASS_THROUGH_WITH_BUFFERS>(nameof(SCSI_PASS_THROUGH_WITH_BUFFERS.DataBuf)).ToInt32();
-                request.Spt.SenseInfoOffset = (uint)Marshal.OffsetOf<SCSI_PASS_THROUGH_WITH_BUFFERS>(nameof(SCSI_PASS_THROUGH_WITH_BUFFERS.SenseBuf)).ToInt32();
-                BuildSmartCdb(ref request.Spt, target, flavor, feature);
-
-                var buffer = StructureHelper.GetBytes(request);
-
-                if (!ioControl.TryScsiPassThrough(handle, buffer, buffer, out var bytesReturned))
-                {
-                    return false;
-                }
-
-                var response = StructureHelper.FromBytes<SCSI_PASS_THROUGH_WITH_BUFFERS>(buffer);
-
-                data = new byte[DataLength];
-                Buffer.BlockCopy(response.DataBuf, 0, data, 0, data.Length);
-
-                return NvmeProbeUtil.HasAnyNonZeroByte(data);
             }
         }
 

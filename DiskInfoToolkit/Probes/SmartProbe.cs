@@ -9,7 +9,7 @@
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Core;
 using DiskInfoToolkit.Interop;
-using DiskInfoToolkit.Models;
+using DiskInfoToolkit.Smart;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
@@ -43,79 +43,28 @@ namespace DiskInfoToolkit.Probes
 
         public static bool TryPopulateSmartData(StorageDevice device, IStorageIoControl ioControl)
         {
-            if (device == null || ioControl == null || string.IsNullOrWhiteSpace(device.DevicePath))
-            {
-                return false;
-            }
+            return TryPopulateSmartData(device, ioControl, false);
+        }
 
-            SafeFileHandle handle = ioControl.OpenDevice(
-                device.DevicePath,
-                IoAccess.GenericRead | IoAccess.GenericWrite,
-                IoShare.ReadWrite,
-                IoCreation.OpenExisting,
-                IoFlags.Normal);
-
-            if (handle == null || handle.IsInvalid)
-            {
-                return false;
-            }
-
-            using (handle)
-            {
-                byte[] smartData = null;
-                byte[] smartThresholds = null;
-
-                bool ok =
-                    (TryReadSmartViaAtaPassThrough(ioControl, handle, SmartReadDataSubcommand, out smartData)
-                        && TryReadSmartViaAtaPassThrough(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds))
-                    || (TryReadSmartViaIdePassThrough(ioControl, handle, SmartReadDataSubcommand, out smartData)
-                        && TryReadSmartViaIdePassThrough(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds))
-                    || (TryReadSmartViaDfp(ioControl, handle, SmartReadDataSubcommand, out smartData)
-                        && TryReadSmartViaDfp(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds))
-                    || (TryReadSmartViaScsiMiniport(ioControl, handle, IoControlCodes.IOCTL_SCSI_MINIPORT_READ_SMART_ATTRIBS, out smartData)
-                        && TryReadSmartViaScsiMiniport(ioControl, handle, IoControlCodes.IOCTL_SCSI_MINIPORT_READ_SMART_THRESHOLDS, out smartThresholds));
-
-                if (!ok)
-                {
-                    TryEnableSmartViaAtaPassThrough(ioControl, handle);
-                    TryEnableSmartViaIdePassThrough(ioControl, handle);
-                    TryEnableSmartViaDfp(ioControl, handle);
-                    TryEnableSmartViaScsiMiniport(ioControl, handle);
-
-                    ok =
-                        (TryReadSmartViaAtaPassThrough(ioControl, handle, SmartReadDataSubcommand, out smartData)
-                            && TryReadSmartViaAtaPassThrough(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds))
-                        || (TryReadSmartViaIdePassThrough(ioControl, handle, SmartReadDataSubcommand, out smartData)
-                            && TryReadSmartViaIdePassThrough(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds))
-                        || (TryReadSmartViaDfp(ioControl, handle, SmartReadDataSubcommand, out smartData)
-                            && TryReadSmartViaDfp(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds))
-                        || (TryReadSmartViaScsiMiniport(ioControl, handle, IoControlCodes.IOCTL_SCSI_MINIPORT_READ_SMART_ATTRIBS, out smartData)
-                            && TryReadSmartViaScsiMiniport(ioControl, handle, IoControlCodes.IOCTL_SCSI_MINIPORT_READ_SMART_THRESHOLDS, out smartThresholds));
-                }
-
-                if (!ok)
-                {
-                    return false;
-                }
-
-                var attributes = ParseSmartPages(smartData, smartThresholds);
-                if (attributes.Count == 0)
-                {
-                    return false;
-                }
-
-                device.SupportsSmart = true;
-                device.SmartAttributes = attributes;
-
-                return true;
-            }
+        public static bool TryRefreshSmartData(StorageDevice device, IStorageIoControl ioControl)
+        {
+            return TryPopulateSmartData(device, ioControl, true);
         }
 
         public static List<SmartAttributeEntry> ParseSmartPages(byte[] dataPage, byte[] thresholdPage)
         {
+            return ParseSmartPages(dataPage, thresholdPage, null);
+        }
+
+        #endregion
+
+        #region Internal
+
+        internal static List<SmartAttributeEntry> ParseSmartPages(byte[] dataPage, byte[] thresholdPage, IDictionary<byte, byte> cachedThresholds)
+        {
             var result = new List<SmartAttributeEntry>();
 
-            var thresholds = ParseThresholds(thresholdPage);
+            var thresholds = ParseThresholds(thresholdPage, cachedThresholds);
 
             if (dataPage == null || dataPage.Length < 362)
             {
@@ -151,6 +100,151 @@ namespace DiskInfoToolkit.Probes
         #endregion
 
         #region Private
+
+        private static bool TryPopulateSmartData(StorageDevice device, IStorageIoControl ioControl, bool refreshOnly)
+        {
+            if (device == null || ioControl == null || string.IsNullOrWhiteSpace(device.DevicePath))
+            {
+                return false;
+            }
+
+            SafeFileHandle handle = ioControl.OpenDevice(
+                device.DevicePath,
+                IoAccess.GenericRead | IoAccess.GenericWrite,
+                IoShare.ReadWrite,
+                IoCreation.OpenExisting,
+                IoFlags.Normal);
+
+            if (handle == null || handle.IsInvalid)
+            {
+                return false;
+            }
+
+            using (handle)
+            {
+                byte[] smartData = null;
+                byte[] smartThresholds = null;
+
+                SmartProbeReadPath succeededPath = SmartProbeReadPath.Unknown;
+                SmartProbeReadPath cachedPath = device.ProbePlan != null ? device.ProbePlan.AtaSmartReadPath : SmartProbeReadPath.Unknown;
+
+                bool readThresholds = !refreshOnly;
+
+                bool ok = refreshOnly
+                    && cachedPath != SmartProbeReadPath.Unknown
+                    && TryReadSmartPagesViaPath(ioControl, handle, cachedPath, readThresholds, out smartData, out smartThresholds);
+
+                if (ok)
+                {
+                    succeededPath = cachedPath;
+                }
+                else if (refreshOnly && cachedPath == SmartProbeReadPath.Unknown)
+                {
+                    ok = TryReadSmartPagesViaAnyPath(ioControl, handle, readThresholds, out smartData, out smartThresholds, out succeededPath);
+                }
+                else if (!refreshOnly)
+                {
+                    ok = TryReadSmartPagesViaAnyPath(ioControl, handle, readThresholds, out smartData, out smartThresholds, out succeededPath);
+
+                    if (!ok)
+                    {
+                        TryEnableSmartViaAtaPassThrough(ioControl, handle);
+                        TryEnableSmartViaIdePassThrough(ioControl, handle);
+                        TryEnableSmartViaDfp(ioControl, handle);
+                        TryEnableSmartViaScsiMiniport(ioControl, handle);
+
+                        ok = TryReadSmartPagesViaAnyPath(ioControl, handle, readThresholds, out smartData, out smartThresholds, out succeededPath);
+                    }
+                }
+
+                if (!ok)
+                {
+                    return false;
+                }
+
+                var cachedThresholds = device.ProbePlan != null ? device.ProbePlan.CachedSmartThresholds : null;
+
+                var attributes = ParseSmartPages(smartData, smartThresholds, cachedThresholds);
+                if (attributes.Count == 0)
+                {
+                    return false;
+                }
+
+                device.SupportsSmart = true;
+                device.SmartAttributes = attributes;
+
+                if (device.ProbePlan != null)
+                {
+                    if (succeededPath != SmartProbeReadPath.Unknown)
+                    {
+                        device.ProbePlan.AtaSmartReadPath = succeededPath;
+                    }
+
+                    if (!refreshOnly)
+                    {
+                        device.ProbePlan.RecordSmartThresholds(attributes);
+                    }
+                }
+
+                return true;
+            }
+        }
+
+        private static bool TryReadSmartPagesViaAnyPath(IStorageIoControl ioControl, SafeFileHandle handle, bool readThresholds, out byte[] smartData, out byte[] smartThresholds, out SmartProbeReadPath succeededPath)
+        {
+            if (TryReadSmartPagesViaPath(ioControl, handle, SmartProbeReadPath.AtaPassThrough, readThresholds, out smartData, out smartThresholds))
+            {
+                succeededPath = SmartProbeReadPath.AtaPassThrough;
+                return true;
+            }
+
+            if (TryReadSmartPagesViaPath(ioControl, handle, SmartProbeReadPath.IdePassThrough, readThresholds, out smartData, out smartThresholds))
+            {
+                succeededPath = SmartProbeReadPath.IdePassThrough;
+                return true;
+            }
+
+            if (TryReadSmartPagesViaPath(ioControl, handle, SmartProbeReadPath.Dfp, readThresholds, out smartData, out smartThresholds))
+            {
+                succeededPath = SmartProbeReadPath.Dfp;
+                return true;
+            }
+
+            if (TryReadSmartPagesViaPath(ioControl, handle, SmartProbeReadPath.ScsiMiniport, readThresholds, out smartData, out smartThresholds))
+            {
+                succeededPath = SmartProbeReadPath.ScsiMiniport;
+                return true;
+            }
+
+            succeededPath = SmartProbeReadPath.Unknown;
+            smartData = null;
+            smartThresholds = null;
+            return false;
+        }
+
+        private static bool TryReadSmartPagesViaPath(IStorageIoControl ioControl, SafeFileHandle handle, SmartProbeReadPath path, bool readThresholds, out byte[] smartData, out byte[] smartThresholds)
+        {
+            smartData = null;
+            smartThresholds = null;
+
+            switch (path)
+            {
+                case SmartProbeReadPath.AtaPassThrough:
+                    return TryReadSmartViaAtaPassThrough(ioControl, handle, SmartReadDataSubcommand, out smartData)
+                        && (!readThresholds || TryReadSmartViaAtaPassThrough(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds));
+                case SmartProbeReadPath.IdePassThrough:
+                    return TryReadSmartViaIdePassThrough(ioControl, handle, SmartReadDataSubcommand, out smartData)
+                        && (!readThresholds || TryReadSmartViaIdePassThrough(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds));
+                case SmartProbeReadPath.Dfp:
+                    return TryReadSmartViaDfp(ioControl, handle, SmartReadDataSubcommand, out smartData)
+                        && (!readThresholds || TryReadSmartViaDfp(ioControl, handle, SmartReadThresholdSubcommand, out smartThresholds));
+                case SmartProbeReadPath.ScsiMiniport:
+                    return TryReadSmartViaScsiMiniport(ioControl, handle, IoControlCodes.IOCTL_SCSI_MINIPORT_READ_SMART_ATTRIBS, out smartData)
+                        && (!readThresholds || TryReadSmartViaScsiMiniport(ioControl, handle, IoControlCodes.IOCTL_SCSI_MINIPORT_READ_SMART_THRESHOLDS, out smartThresholds));
+                default:
+                    return false;
+            }
+        }
 
         private static bool TryReadSmartViaAtaPassThrough(IStorageIoControl ioControl, SafeFileHandle handle, byte feature, out byte[] data)
         {
@@ -398,9 +492,11 @@ namespace DiskInfoToolkit.Probes
             return ioControl.TryScsiMiniport(handle, buffer, buffer, out var bytesReturned);
         }
 
-        private static Dictionary<byte, byte> ParseThresholds(byte[] thresholdPage)
+        private static Dictionary<byte, byte> ParseThresholds(byte[] thresholdPage, IDictionary<byte, byte> cachedThresholds)
         {
-            var result = new Dictionary<byte, byte>();
+            var result = cachedThresholds != null
+                ? new Dictionary<byte, byte>(cachedThresholds)
+                : new Dictionary<byte, byte>();
 
             if (thresholdPage == null || thresholdPage.Length < 362)
             {

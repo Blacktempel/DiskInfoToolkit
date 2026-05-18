@@ -222,16 +222,23 @@ namespace DiskInfoToolkit.Monitoring
             {
                 return new StorageProbePlan
                 {
-                    IsInitialized       = probePlan.IsInitialized,
-                    Strategy            = probePlan.Strategy,
-                    ControllerFamily    = probePlan.ControllerFamily,
-                    DevicePath          = probePlan.DevicePath,
-                    DeviceInstanceID    = probePlan.DeviceInstanceID,
-                    ControllerService   = probePlan.ControllerService,
-                    ControllerIdentifier = probePlan.ControllerIdentifier,
-                    SuccessfulOperations = probePlan.SuccessfulOperations != null
+                    IsInitialized                  = probePlan.IsInitialized,
+                    Strategy                       = probePlan.Strategy,
+                    ControllerFamily               = probePlan.ControllerFamily,
+                    DevicePath                     = probePlan.DevicePath,
+                    DeviceInstanceID               = probePlan.DeviceInstanceID,
+                    ControllerService              = probePlan.ControllerService,
+                    ControllerIdentifier           = probePlan.ControllerIdentifier,
+                    AtaSmartReadPath               = probePlan.AtaSmartReadPath,
+                    SatSmartFlavor                 = probePlan.SatSmartFlavor,
+                    SatSmartTarget                 = probePlan.SatSmartTarget,
+                    ConsecutiveRefreshFailureCount = probePlan.ConsecutiveRefreshFailureCount,
+                    SuccessfulOperations           = probePlan.SuccessfulOperations != null
                         ? new List<StorageProbeOperation>(probePlan.SuccessfulOperations)
-                        : new List<StorageProbeOperation>()
+                        : new List<StorageProbeOperation>(),
+                    CachedSmartThresholds          = probePlan.CachedSmartThresholds != null
+                        ? new Dictionary<byte, byte>(probePlan.CachedSmartThresholds)
+                        : new Dictionary<byte, byte>()
                 };
             }
 

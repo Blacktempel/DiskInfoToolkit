@@ -8,6 +8,7 @@
 
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Probes;
+using DiskInfoToolkit.Smart;
 
 namespace DiskInfoToolkit.Core
 {
@@ -30,6 +31,11 @@ namespace DiskInfoToolkit.Core
             //This avoids repeatedly executing IOCTL paths that already failed for this device
             if (!TryProbeWithCachedPlan(device, ioControl))
             {
+                if (device.ProbePlan != null && device.ProbePlan.IsInitialized)
+                {
+                    ResetStrategyProbeDataForFullProbe(device);
+                }
+
                 device.ProbePlan = StorageProbePlan.CreateForFullProbe(device, device.ProbePlan);
                 createdNewProbePlan = true;
 
@@ -91,34 +97,43 @@ namespace DiskInfoToolkit.Core
 
             ApplyCachedProbePreamble(device);
 
-            var cachedStrategyOperations = new List<StorageProbeOperation>();
+            var cachedRefreshOperations = new List<StorageProbeOperation>();
 
             if (plan.SuccessfulOperations != null)
             {
                 foreach (var operation in plan.SuccessfulOperations)
                 {
-                    if (!StorageProbePlan.IsStandardPropertyOperation(operation))
+                    if (!StorageProbePlan.IsStandardPropertyOperation(operation) && IsCachedRefreshOperation(operation))
                     {
-                        cachedStrategyOperations.Add(operation);
+                        cachedRefreshOperations.Add(operation);
                     }
                 }
             }
 
-            if (cachedStrategyOperations.Count == 0)
+            if (cachedRefreshOperations.Count == 0)
             {
-                ProbeTraceRecorder.Add(device, "Probe cache: previous full probe did not find any successful strategy-specific operation; skipping strategy-specific probe calls.");
+                //In case of cache miss / incomplete implementation
+                if (device.SupportsSmart || (device.SmartAttributes != null && device.SmartAttributes.Count > 0))
+                {
+                    ProbeTraceRecorder.Add(device, "Probe cache: previous full probe reported SMART data but no refreshable SMART operation was cached; running a full probe to repair the cache.");
+                    return false;
+                }
+
+                plan.ResetRefreshFailures();
+
+                ProbeTraceRecorder.Add(device, "Probe cache: previous full probe did not find any refreshable strategy-specific operation; skipping strategy-specific probe calls.");
                 return true;
             }
 
-            ProbeTraceRecorder.Add(device, $"Probe cache: executing {cachedStrategyOperations.Count} previously successful strategy-specific operation(s) only.");
+            ProbeTraceRecorder.Add(device, $"Probe cache: executing {cachedRefreshOperations.Count} previously successful refresh operation(s) only.");
 
             bool anyOperationSucceeded = false;
 
-            //Execute only the previously successful operations in the cache
-            //and skip any operations that were not successful before
-            foreach (var operation in cachedStrategyOperations)
+            //Execute only the previously successful volatile operations in the cache.
+            //Stable identification/capacity operations are intentionally not repeated during normal refresh.
+            foreach (var operation in cachedRefreshOperations)
             {
-                bool operationOk = ExecuteProbeOperation(device, ioControl, operation);
+                bool operationOk = ExecuteCachedRefreshOperation(device, ioControl, operation);
 
                 if (operationOk)
                 {
@@ -133,12 +148,40 @@ namespace DiskInfoToolkit.Core
                 }
             }
 
-            if (anyOperationSucceeded && device.ProbeStrategy == ProbeStrategy.UsbProbe)
+            if (anyOperationSucceeded)
             {
-                UsbBridgeClassifier.ApplyInquiryHeuristics(device);
+                plan.ResetRefreshFailures();
+
+                if (device.ProbeStrategy == ProbeStrategy.UsbProbe)
+                {
+                    UsbBridgeClassifier.ApplyInquiryHeuristics(device);
+                }
+
+                return true;
             }
 
+            ++plan.ConsecutiveRefreshFailureCount;
+
+            var maxFailureCount = Storage.MaxConsecutiveRefreshFailureCount;
+
+            if (plan.ConsecutiveRefreshFailureCount >= maxFailureCount)
+            {
+                ProbeTraceRecorder.Add(device, $"Probe cache: all cached refresh operations failed {maxFailureCount} times in a row; running a full probe.");
+                plan.ResetRefreshFailures();
+                return false;
+            }
+
+            ProbeTraceRecorder.Add(device, $"Probe cache: all cached refresh operations failed; keeping cached plan until failure threshold is reached ({plan.ConsecutiveRefreshFailureCount}/{maxFailureCount}).");
             return true;
+        }
+
+        private static void ResetStrategyProbeDataForFullProbe(StorageDevice device)
+        {
+            device.SupportsSmart = false;
+            device.SmartAttributes = new List<SmartAttributeEntry>();
+            device.SmartAttributeProfile = SmartAttributeProfile.Unknown;
+            device.Nvme = new StorageNvmeInfo();
+            device.CapacitySource = string.Empty;
         }
 
         private static void ApplyCachedOperationSideEffects(StorageDevice device, StorageProbeOperation operation)
@@ -192,9 +235,80 @@ namespace DiskInfoToolkit.Core
             if (succeeded && device.ProbePlan != null && !device.ProbePlan.IsInitialized)
             {
                 device.ProbePlan.RecordSuccess(operation);
+                RecordNestedRefreshOperations(device, operation);
             }
 
             return succeeded;
+        }
+
+        private static void RecordNestedRefreshOperations(StorageDevice device, StorageProbeOperation operation)
+        {
+            if (device == null || device.ProbePlan == null || !device.SupportsSmart)
+            {
+                return;
+            }
+
+            if (device.ProbePlan.SatSmartFlavor.HasValue && device.ProbePlan.SatSmartTarget.HasValue)
+            {
+                device.ProbePlan.RecordSuccess(StorageProbeOperation.ScsiSatSmart);
+            }
+
+            if (device.ProbePlan.AtaSmartReadPath != SmartProbeReadPath.Unknown)
+            {
+                device.ProbePlan.RecordSuccess(StorageProbeOperation.AtaSmart);
+            }
+
+            if (device.TransportKind == StorageTransportKind.Nvme
+             || (device.Nvme != null && device.Nvme.SmartLogData != null && device.Nvme.SmartLogData.Length > 0))
+            {
+                return;
+            }
+
+            if ((operation == StorageProbeOperation.UsbBridge || operation == StorageProbeOperation.UsbMassStorage)
+             && !device.ProbePlan.Contains(StorageProbeOperation.ScsiSatSmart)
+             && !device.ProbePlan.Contains(StorageProbeOperation.AtaSmart))
+            {
+                device.ProbePlan.RecordSuccess(StorageProbeOperation.UsbVendorScsiSmart);
+            }
+        }
+
+        private static bool ExecuteCachedRefreshOperation(StorageDevice device, IStorageIoControl ioControl, StorageProbeOperation operation)
+        {
+            switch (operation)
+            {
+                case StorageProbeOperation.AtaSmart:
+                    return SmartProbe.TryRefreshSmartData(device, ioControl);
+                case StorageProbeOperation.ScsiSatSmart:
+                    return ScsiSatProbe.TryRefreshSmartData(device, ioControl);
+                case StorageProbeOperation.UsbVendorScsiSmart:
+                    return UsbVendorScsiSmartProbe.TryRefreshSmartData(device, ioControl);
+                case StorageProbeOperation.StandardNvme:
+                    return NvmeProbe.TryRefreshStandardNvmeSmartLog(device, ioControl);
+                case StorageProbeOperation.IntelNvme:
+                    return IntelNvmeProbe.TryRefreshIntelNvmeSmartLog(device, ioControl);
+                case StorageProbeOperation.VrocNvmePassThrough:
+                    return VrocNvmePassThroughProbe.TryRefreshSmartLog(device, ioControl);
+                default:
+                    return ExecuteProbeOperation(device, ioControl, operation);
+            }
+        }
+
+        private static bool IsCachedRefreshOperation(StorageProbeOperation operation)
+        {
+            switch (operation)
+            {
+                case StorageProbeOperation.StandardAtaIdentify:
+                case StorageProbeOperation.ScsiSatIdentify:
+                case StorageProbeOperation.ScsiInquiry:
+                case StorageProbeOperation.ScsiCapacity:
+                case StorageProbeOperation.UsbBridge:
+                case StorageProbeOperation.UsbMassStorage:
+                case StorageProbeOperation.CsmiDriverInfo:
+                case StorageProbeOperation.CsmiTopology:
+                    return false;
+                default:
+                    return true;
+            }
         }
 
         private static bool ExecuteProbeOperation(StorageDevice device, IStorageIoControl ioControl, StorageProbeOperation operation)

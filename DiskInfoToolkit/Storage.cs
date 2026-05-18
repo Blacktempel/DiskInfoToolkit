@@ -124,6 +124,12 @@ namespace DiskInfoToolkit
         #region Properties
 
         /// <summary>
+        /// Gets or sets the maximum number of consecutive refresh failures allowed before fully reprobing the device.
+        /// </summary>
+        /// <remarks>The default value is 3.</remarks>
+        public static int MaxConsecutiveRefreshFailureCount { get; set; } = 3;
+
+        /// <summary>
         /// Gets or sets the delay between removable-media polling cycles.<br/>
         /// Default is 1 second.
         /// </summary>
@@ -205,6 +211,9 @@ namespace DiskInfoToolkit
         /// </summary>
         /// <param name="device">The device to refresh.</param>
         /// <returns>Whether the device state was successfully refreshed or device had no changes.</returns>
+        /// <remarks>After the first full probe, compatible devices reuse their cached successful probe path and refresh only volatile disk data where possible.<br/>
+        /// Polling HDD SMART data too frequently may cause performance degradation or audible clicking on some drives or USB/SATA bridges.<br/>
+        /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool Refresh(StorageDevice device)
         {
             return Refresh(device, true, true);
@@ -215,6 +224,9 @@ namespace DiskInfoToolkit
         /// </summary>
         /// <param name="device">The device to refresh.</param>
         /// <returns>Whether the volatile data was successfully refreshed or device had no changes.</returns>
+        /// <remarks>After the first full probe, compatible devices reuse their cached successful probe path and refresh only volatile disk data where possible.<br/>
+        /// Polling HDD SMART data too frequently may cause performance degradation or audible clicking on some drives or USB/SATA bridges.<br/>
+        /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool RefreshVolatileData(StorageDevice device)
         {
             return Refresh(device, true, true);
@@ -244,6 +256,9 @@ namespace DiskInfoToolkit
         /// <param name="refreshProbeData">Whether to refresh the probe data.</param>
         /// <param name="refreshPartitions">Whether to refresh the partitions.</param>
         /// <returns>Whether the device state was successfully refreshed or device had no changes.</returns>
+        /// <remarks>After the first full probe, compatible devices reuse their cached successful probe path and refresh only volatile disk data where possible.<br/>
+        /// Polling HDD SMART data too frequently may cause performance degradation or audible clicking on some drives or USB/SATA bridges.<br/>
+        /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool Refresh(StorageDevice device, bool refreshProbeData, bool refreshPartitions)
         {
             if (device == null)
@@ -451,17 +466,32 @@ namespace DiskInfoToolkit
                 return;
             }
 
-            ResetVolatileProbeData(device);
+            bool canUseCachedProbePlan = CanUseCachedProbePlanForRefresh(device);
 
-            //Refresh the IOCTL-backed base properties for this single device only
-            //Do not enumerate all disks here
-            StorageDetectionEngine.AttachStandardStorageProperties(device, ioControl);
-            StorageDetectionEngine.SelectProbeStrategy(device);
+            if (canUseCachedProbePlan)
+            {
+                device.ProbeTrace = new List<string>();
+            }
+            else
+            {
+                ResetVolatileProbeData(device);
+
+                //Refresh the IOCTL-backed base properties for this single device only
+                //Do not enumerate all disks here
+                StorageDetectionEngine.AttachStandardStorageProperties(device, ioControl);
+                StorageDetectionEngine.SelectProbeStrategy(device);
+            }
 
             if (!device.IsFiltered)
             {
                 StorageProbeDispatcher.Probe(device, ioControl);
             }
+        }
+
+        private static bool CanUseCachedProbePlanForRefresh(StorageDevice device)
+        {
+            StorageProbePlan plan = device != null ? device.ProbePlan : null;
+            return plan != null && plan.IsInitialized && plan.IsCompatibleWith(device);
         }
 
         private static void ResetVolatileProbeData(StorageDevice device)

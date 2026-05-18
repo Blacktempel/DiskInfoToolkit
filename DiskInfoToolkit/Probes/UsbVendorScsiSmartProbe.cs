@@ -37,6 +37,20 @@ namespace DiskInfoToolkit.Probes
 
         public static bool TryPopulateData(StorageDevice device, IStorageIoControl ioControl)
         {
+            return TryPopulateData(device, ioControl, false);
+        }
+
+        public static bool TryRefreshSmartData(StorageDevice device, IStorageIoControl ioControl)
+        {
+            return TryPopulateData(device, ioControl, true);
+        }
+
+        #endregion
+
+        #region Private
+
+        private static bool TryPopulateData(StorageDevice device, IStorageIoControl ioControl, bool refreshOnly)
+        {
             if (device == null || ioControl == null || string.IsNullOrWhiteSpace(device.DevicePath))
             {
                 return false;
@@ -66,14 +80,16 @@ namespace DiskInfoToolkit.Probes
                 byte[] smartThresholds = null;
 
                 bool ok = TryReadPage(ioControl, handle, flavor, SmartReadDataSubcommand, out smartData)
-                    && TryReadPage(ioControl, handle, flavor, SmartReadThresholdSubcommand, out smartThresholds);
+                       && (refreshOnly || TryReadPage(ioControl, handle, flavor, SmartReadThresholdSubcommand, out smartThresholds));
 
                 if (!ok)
                 {
                     return false;
                 }
 
-                var attributes = SmartProbe.ParseSmartPages(smartData, smartThresholds);
+                var cachedThresholds = device.ProbePlan != null ? device.ProbePlan.CachedSmartThresholds : null;
+
+                var attributes = SmartProbe.ParseSmartPages(smartData, smartThresholds, cachedThresholds);
                 if (attributes.Count == 0)
                 {
                     return false;
@@ -82,15 +98,16 @@ namespace DiskInfoToolkit.Probes
                 device.SupportsSmart = true;
                 device.SmartAttributes = attributes;
 
+                if (!refreshOnly && device.ProbePlan != null)
+                {
+                    device.ProbePlan.RecordSmartThresholds(attributes);
+                }
+
                 ProbeTraceRecorder.Add(device, "USB bridge SMART: vendor-specific SCSI SMART succeeded for " + (device.Usb.BridgeFamily ?? "unknown") + ".");
 
                 return true;
             }
         }
-
-        #endregion
-
-        #region Private
 
         private static UsbSmartFlavor GetFlavor(StorageDevice device)
         {
