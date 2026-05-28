@@ -8,7 +8,6 @@
 
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Core;
-using DiskInfoToolkit.Interop;
 using DiskInfoToolkit.Monitoring;
 using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Partitions;
@@ -16,7 +15,6 @@ using Microsoft.Win32.SafeHandles;
 using System.Globalization;
 using System.Reflection;
 using System.Resources;
-using System.Runtime.InteropServices;
 using OS = BlackSharp.Core.Platform.OperatingSystem;
 
 namespace DiskInfoToolkit
@@ -69,12 +67,6 @@ namespace DiskInfoToolkit
 
         #region Fields
 
-        private const string MessageWindowClassName = nameof(Storage) + "TopLevelHiddenWindowClass";
-
-        private const string MessageWindowTitle = nameof(Storage) + "MessageWindow";
-
-        private const uint StopMonitoringMessage = User32Native.WM_APP + 0x03D1;
-
         private const int MonitoringThreadStopTimeoutMilliseconds = 5000;
 
         private static readonly object SyncRoot = new object();
@@ -82,14 +74,6 @@ namespace DiskInfoToolkit
         private static readonly AutoResetEvent RescanSignal = new AutoResetEvent(false);
 
         private static readonly ManualResetEvent MonitoringStopSignal = new ManualResetEvent(false);
-
-        private static IntPtr _messageWindow;
-
-        private static IntPtr _volumeNotificationHandle;
-
-        private static IntPtr _diskNotificationHandle;
-
-        private static StorageWindowProc _windowProcDelegate;
 
         private static Thread _messageLoopThread;
 
@@ -552,8 +536,6 @@ namespace DiskInfoToolkit
             _monitoringStopping = false;
             MonitoringStopSignal.Reset();
 
-            _windowProcDelegate = WindowProc;
-
             //Get the initial storage state before starting the monitoring threads, so that we have a baseline for change detection and can populate the media watch state
             EnumerateStorageState(out var initialVisibleDisks, out var initialMediaWatchDevices, out var initialMediaStates);
 
@@ -577,7 +559,8 @@ namespace DiskInfoToolkit
             };
             _messageLoopThread.Start();
 
-            //Start the media watch loop thread, which periodically checks for removable media state changes and signals rescans
+            //Start the media watch loop thread, which periodically checks for removable media state changes and signals rescans.
+            //This is required on Linux as well, because some SD/MMC/card-reader stacks keep the same block-device topology while the medium changes.
             _mediaWatchThread = new Thread(MediaWatchLoop)
             {
                 IsBackground = true,
@@ -631,9 +614,9 @@ namespace DiskInfoToolkit
             MonitoringStopSignal.Set();
             RescanSignal.Set();
 
-            if (_messageWindow != IntPtr.Zero)
+            if (OS.IsWindows())
             {
-                User32Native.PostMessage(_messageWindow, StopMonitoringMessage, UIntPtr.Zero, IntPtr.Zero);
+                WindowsStorageDeviceChangeMonitor.RequestStop();
             }
         }
 
@@ -657,11 +640,6 @@ namespace DiskInfoToolkit
             _messageLoopThread = null;
             _rescanThread      = null;
             _mediaWatchThread  = null;
-
-            _messageWindow             = IntPtr.Zero;
-            _volumeNotificationHandle  = IntPtr.Zero;
-            _diskNotificationHandle    = IntPtr.Zero;
-            _windowProcDelegate        = null;
         }
 
         private static void WaitForMonitoringThreads(Thread messageLoopThread, Thread rescanThread, Thread mediaWatchThread)
@@ -685,132 +663,13 @@ namespace DiskInfoToolkit
         {
             if (OS.IsWindows())
             {
-                if (!CreateMessageWindow())
-                {
-                    return;
-                }
-
-                try
-                {
-                    while (!MonitoringStopSignal.WaitOne(0) && User32Native.GetMessage(out var msg, _messageWindow, 0, 0) > 0)
-                    {
-                        User32Native.TranslateMessage(ref msg);
-                        User32Native.DispatchMessage(ref msg);
-                    }
-                }
-                finally
-                {
-                    UnregisterStorageNotifications();
-                    if (_messageWindow != IntPtr.Zero)
-                    {
-                        User32Native.DestroyWindow(_messageWindow);
-                        _messageWindow = IntPtr.Zero;
-                    }
-                }
-            }
-        }
-
-        private static bool CreateMessageWindow()
-        {
-            var wnd = new WNDCLASSEX();
-            wnd.cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>();
-            wnd.lpfnWndProc = _windowProcDelegate;
-            wnd.lpszClassName = MessageWindowClassName;
-            wnd.hInstance = Kernel32Native.GetModuleHandle(null);
-
-            ushort atom = User32Native.RegisterClassEx(ref wnd);
-            if (atom == 0)
-            {
-                return false;
+                WindowsStorageDeviceChangeMonitor.Run(MonitoringStopSignal, QueueRescan);
+                return;
             }
 
-            _messageWindow = User32Native.CreateWindowEx(
-                0,
-                wnd.lpszClassName,
-                MessageWindowTitle,
-                0,
-                0,
-                0,
-                0,
-                0,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                wnd.hInstance,
-                IntPtr.Zero);
-
-            if (_messageWindow == IntPtr.Zero)
+            if (OS.IsLinux())
             {
-                return false;
-            }
-
-            RegisterStorageNotifications();
-            return true;
-        }
-
-        private static IntPtr WindowProc(IntPtr hWnd, uint msg, UIntPtr wParam, IntPtr lParam)
-        {
-            if (msg == User32Native.WM_DEVICECHANGE)
-            {
-                uint eventCode = unchecked((uint)wParam.ToUInt64());
-
-                if (eventCode == User32Native.DBT_DEVICEARRIVAL
-                    || eventCode == User32Native.DBT_DEVICEREMOVECOMPLETE
-                    || eventCode == User32Native.DBT_DEVNODES_CHANGED)
-                {
-                    QueueRescan();
-                }
-            }
-
-            return User32Native.DefWindowProc(hWnd, msg, wParam, lParam);
-        }
-
-        private static void RegisterStorageNotifications()
-        {
-            UnregisterStorageNotifications();
-
-            //Register for volume and disk interface notifications
-            _volumeNotificationHandle = RegisterDeviceInterfaceNotification(DeviceInterfaceGuids.Volume);
-            _diskNotificationHandle = RegisterDeviceInterfaceNotification(DeviceInterfaceGuids.Disk);
-        }
-
-        private static void UnregisterStorageNotifications()
-        {
-            if (_volumeNotificationHandle != IntPtr.Zero)
-            {
-                User32Native.UnregisterDeviceNotification(_volumeNotificationHandle);
-                _volumeNotificationHandle = IntPtr.Zero;
-            }
-
-            if (_diskNotificationHandle != IntPtr.Zero)
-            {
-                User32Native.UnregisterDeviceNotification(_diskNotificationHandle);
-                _diskNotificationHandle = IntPtr.Zero;
-            }
-        }
-
-        private static IntPtr RegisterDeviceInterfaceNotification(Guid classGuid)
-        {
-            if (_messageWindow == IntPtr.Zero)
-            {
-                return IntPtr.Zero;
-            }
-
-            var filter = new DEV_BROADCAST_DEVICEINTERFACE();
-            filter.dbcc_size = Marshal.SizeOf<DEV_BROADCAST_DEVICEINTERFACE>();
-            filter.dbcc_devicetype = User32Native.DBT_DEVTYP_DEVICEINTERFACE;
-            filter.dbcc_reserved = 0;
-            filter.dbcc_classguid = classGuid;
-            filter.dbcc_name = 0;
-
-            var filterPtr = Marshal.AllocHGlobal(filter.dbcc_size);
-            try
-            {
-                Marshal.StructureToPtr(filter, filterPtr, false);
-                return User32Native.RegisterDeviceNotification(_messageWindow, filterPtr, User32Native.DEVICE_NOTIFY_WINDOW_HANDLE);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(filterPtr);
+                LinuxStorageDeviceChangeMonitor.Run(MonitoringStopSignal, QueueRescan);
             }
         }
 
@@ -866,6 +725,73 @@ namespace DiskInfoToolkit
             }
 
             return changed;
+        }
+
+        private static List<StorageDevice> MergeMediaWatchDevicesForMonitoring(List<StorageDevice> previous, List<StorageDevice> current)
+        {
+            if (!OS.IsLinux())
+            {
+                return StorageDeviceCloneHelper.CloneList(current);
+            }
+
+            var result = new List<StorageDevice>();
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            AddMediaWatchDevices(result, keys, current);
+            AddMediaWatchDevices(result, keys, previous);
+
+            return result;
+        }
+
+        private static void AddMediaWatchDevices(List<StorageDevice> result, HashSet<string> keys, List<StorageDevice> devices)
+        {
+            if (result == null || keys == null || devices == null)
+            {
+                return;
+            }
+
+            foreach (var device in devices)
+            {
+                if (!StorageMediaPresenceMonitor.IsMediaWatchCandidate(device))
+                {
+                    continue;
+                }
+
+                string key = GetMediaWatchKey(device);
+                if (string.IsNullOrWhiteSpace(key) || keys.Contains(key))
+                {
+                    continue;
+                }
+
+                keys.Add(key);
+                result.Add(StorageDeviceCloneHelper.Clone(device));
+            }
+        }
+
+        private static string GetMediaWatchKey(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return string.Empty;
+            }
+
+            string key = StorageDeviceIdentityMatcher.GetStableKey(device);
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                return key;
+            }
+
+            if (!string.IsNullOrWhiteSpace(device.DevicePath))
+            {
+                return device.DevicePath;
+            }
+
+            if (!string.IsNullOrWhiteSpace(device.AlternateDevicePath))
+            {
+                return device.AlternateDevicePath;
+            }
+
+            return device.DeviceInstanceID ?? string.Empty;
         }
 
         private static bool MediaStateDictionariesEqual(Dictionary<string, bool?> left, Dictionary<string, bool?> right)
@@ -943,14 +869,21 @@ namespace DiskInfoToolkit
         private static void HandleStorageTopologyChanged()
         {
             List<StorageDevice> previous;
+            List<StorageDevice> previousMediaWatchDevices;
             lock (SyncRoot)
             {
                 //Clone the previous state to avoid holding the lock during the potentially long enumeration and diffing operations
                 previous = StorageDeviceCloneHelper.CloneList(_currentDisks);
+                previousMediaWatchDevices = StorageDeviceCloneHelper.CloneList(_mediaWatchDevices);
             }
 
             //Get the new state
             EnumerateStorageState(out var current, out var mediaWatchDevices, out var mediaStates);
+
+            var mergedMediaWatchDevices = MergeMediaWatchDevicesForMonitoring(previousMediaWatchDevices, mediaWatchDevices);
+            var mergedMediaStates = OS.IsLinux()
+                ? StorageMediaPresenceMonitor.BuildStateSnapshot(mergedMediaWatchDevices)
+                : mediaStates;
 
             //Build the difference between the previous and current state
             var diff = StorageDeviceDiffBuilder.Build(previous, current);
@@ -958,9 +891,8 @@ namespace DiskInfoToolkit
             lock (SyncRoot)
             {
                 _currentDisks = StorageDeviceCloneHelper.CloneList(current);
-                _mediaWatchDevices = StorageDeviceCloneHelper.CloneList(mediaWatchDevices);
-
-                _removableMediaStates = mediaStates;
+                _mediaWatchDevices = StorageDeviceCloneHelper.CloneList(mergedMediaWatchDevices);
+                _removableMediaStates = mergedMediaStates;
             }
 
             //Raise change event if there are any changes

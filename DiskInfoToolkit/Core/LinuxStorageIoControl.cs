@@ -814,6 +814,11 @@ namespace DiskInfoToolkit.Core
                 return StorageBusType.Sata;
             }
 
+            if (name.StartsWith("mmcblk", StringComparison.OrdinalIgnoreCase))
+            {
+                return StorageBusType.Mmc;
+            }
+
             if (name.StartsWith("sd", StringComparison.OrdinalIgnoreCase))
             {
                 return StorageBusType.Scsi;
