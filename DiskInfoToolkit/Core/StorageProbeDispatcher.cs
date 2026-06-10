@@ -758,6 +758,17 @@ namespace DiskInfoToolkit.Core
                 }
             }
 
+            //Some SATA/ATA drives behind SAS HBAs or Storage Spaces are reported as BusTypeSas and
+            //already have descriptor identity before the RAID path starts. They still need SAT over the
+            //original disk handle (for example \\.\PhysicalDriveX) to read ATA SMART data.
+            //This must run before the composite RAID-port probes because those can succeed on controller
+            //metadata only and may switch the effective path to \\.\SCSIx:, which is not the disk handle
+            //that worked for direct SAT SMART on these devices.
+            if (TryDirectSatRaidFallback(device, ioControl))
+            {
+                return;
+            }
+
             //Try composite SCSI port paths, which can work on some RAID controllers that expose RAID metadata through SCSI port queries
             if (TryCompositeRaidPortPaths(device, ioControl))
             {
@@ -929,7 +940,13 @@ namespace DiskInfoToolkit.Core
             if (compositeOk)
             {
                 ProbeTraceRecorder.Add(device, "RAID path: CSMI composite SCSI port probing succeeded.");
-                return true;
+
+                if (!ShouldTryDirectSatRaidFallback(device) || device.SupportsSmart)
+                {
+                    return true;
+                }
+
+                ProbeTraceRecorder.Add(device, "RAID path: CSMI composite probing did not produce SMART data for an ATA device on SCSI/SAS transport; continuing to direct SAT fallback.");
             }
 
             if (driverInfoOk && string.IsNullOrWhiteSpace(device.Controller.Kind))
@@ -937,7 +954,10 @@ namespace DiskInfoToolkit.Core
                 device.Controller.Kind = ControllerKindNames.Csmi;
             }
 
-            return HasUsefulIdentity(device) || device.SupportsSmart;
+            //CSMI driver/topology metadata alone is not a definitive disk data probe.
+            //Most devices already have descriptor identity before this method runs, so returning true
+            //for existing identity would skip the SAT fallbacks needed by ATA disks behind SAS/RAID HBAs.
+            return false;
         }
 
         private static bool TryCompositeRaidPortPaths(StorageDevice device, IStorageIoControl ioControl)
@@ -948,9 +968,14 @@ namespace DiskInfoToolkit.Core
             if (masterPortCompositeOk)
             {
                 ProbeTraceRecorder.Add(device, "RAID path: master composite SCSI port probing succeeded.");
-                if (HasSufficientRaidData(device))
+                if (HasSufficientRaidData(device) && (!ShouldTryDirectSatRaidFallback(device) || device.SupportsSmart))
                 {
                     return true;
+                }
+
+                if (ShouldTryDirectSatRaidFallback(device) && !device.SupportsSmart)
+                {
+                    ProbeTraceRecorder.Add(device, "RAID path: master composite probing did not produce SMART data for an ATA device on SCSI/SAS transport; continuing with remaining fallbacks.");
                 }
             }
 
@@ -960,9 +985,14 @@ namespace DiskInfoToolkit.Core
             if (compositePortOk)
             {
                 ProbeTraceRecorder.Add(device, "RAID path: composite SCSI port probing succeeded.");
-                if (HasSufficientRaidData(device))
+                if (HasSufficientRaidData(device) && (!ShouldTryDirectSatRaidFallback(device) || device.SupportsSmart))
                 {
                     return true;
+                }
+
+                if (ShouldTryDirectSatRaidFallback(device) && !device.SupportsSmart)
+                {
+                    ProbeTraceRecorder.Add(device, "RAID path: composite probing did not produce SMART data for an ATA device on SCSI/SAS transport; continuing with remaining fallbacks.");
                 }
             }
 
@@ -1025,9 +1055,12 @@ namespace DiskInfoToolkit.Core
 
                 //Try SAT over SCSI identify and SMART, which can work on some RAID controllers that
                 //don't support standard ATA commands but do support the SAT command set over SCSI
+                bool changed = false;
+
                 if (TryProbeOperation(device, ioControl, StorageProbeOperation.ScsiSatIdentify, ScsiSatProbe.TryPopulateIdentifyData))
                 {
                     ProbeTraceRecorder.Add(device, "RAID path: SAT identify succeeded.");
+                    changed = true;
                 }
 
                 //Try SAT SMART if the device doesn't support SMART but might support it through SAT,
@@ -1035,6 +1068,7 @@ namespace DiskInfoToolkit.Core
                 if (TryProbeOperation(device, ioControl, StorageProbeOperation.ScsiSatSmart, ScsiSatProbe.TryPopulateSmartData))
                 {
                     ProbeTraceRecorder.Add(device, "RAID path: SAT SMART succeeded.");
+                    changed = true;
                 }
 
                 //Try standard ATA identify and SMART as some RAID controllers that present as
@@ -1042,6 +1076,7 @@ namespace DiskInfoToolkit.Core
                 if (TryProbeOperation(device, ioControl, StorageProbeOperation.StandardAtaIdentify, StandardAtaProbe.TryPopulateIdentifyData))
                 {
                     ProbeTraceRecorder.Add(device, "RAID path: ATA identify succeeded.");
+                    changed = true;
                 }
 
                 //Try SMART probing for devices that don't report SMART support but might have it accessible
@@ -1049,9 +1084,10 @@ namespace DiskInfoToolkit.Core
                 if (TryProbeOperation(device, ioControl, StorageProbeOperation.AtaSmart, SmartProbe.TryPopulateSmartData))
                 {
                     ProbeTraceRecorder.Add(device, "RAID path: ATA SMART succeeded.");
+                    changed = true;
                 }
 
-                return HasSufficientRaidData(device);
+                return changed && HasSufficientRaidData(device);
             }
 
             if (scsiRaidController)
@@ -1070,10 +1106,96 @@ namespace DiskInfoToolkit.Core
                     ProbeTraceRecorder.Add(device, "RAID path: controller-specific SCSI capacity succeeded.");
                 }
 
-                return HasUsefulIdentity(device);
+                return (inquiryOk || capacityOk) && HasUsefulIdentity(device);
             }
 
             return false;
+        }
+
+        private static bool TryDirectSatRaidFallback(StorageDevice device, IStorageIoControl ioControl)
+        {
+            if (!ShouldTryDirectSatRaidFallback(device))
+            {
+                return false;
+            }
+
+            ProbeTraceRecorder.Add(device, "RAID path: ATA device on SCSI/SAS transport; trying direct SAT fallback.");
+
+            bool identifyOk = false;
+            bool smartOk = false;
+
+            if (TryProbeOperation(device, ioControl, StorageProbeOperation.ScsiSatIdentify, ScsiSatProbe.TryPopulateIdentifyData))
+            {
+                ProbeTraceRecorder.Add(device, "RAID path: direct SAT identify succeeded.");
+                identifyOk = true;
+            }
+
+            if (TryProbeOperation(device, ioControl, StorageProbeOperation.ScsiSatSmart, ScsiSatProbe.TryPopulateSmartData))
+            {
+                ProbeTraceRecorder.Add(device, "RAID path: direct SAT SMART succeeded.");
+                smartOk = true;
+            }
+
+            if (identifyOk && !smartOk)
+            {
+                ProbeTraceRecorder.Add(device, "RAID path: direct SAT identify succeeded, but direct SAT SMART did not return data; continuing with remaining RAID fallbacks.");
+            }
+
+            return smartOk;
+        }
+
+        private static bool ShouldTryDirectSatRaidFallback(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            bool scsiLikeTransport = device.BusType == StorageBusType.Scsi
+                                  || device.BusType == StorageBusType.Sas
+                                  || device.BusType == StorageBusType.RAID
+                                  || device.TransportKind == StorageTransportKind.Scsi
+                                  || device.TransportKind == StorageTransportKind.Sas
+                                  || device.TransportKind == StorageTransportKind.Raid;
+
+            if (!scsiLikeTransport)
+            {
+                return false;
+            }
+
+            return IsAtaPresentedThroughScsi(device);
+        }
+
+        private static bool IsAtaPresentedThroughScsi(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            if (string.Equals(device.VendorName, "ATA", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return StartsWithAtaMarker(device.DisplayName)
+                || StartsWithAtaMarker(device.DeviceTypeLabel)
+                || ContainsAtaVendorMarker(device.DevicePath)
+                || ContainsAtaVendorMarker(device.AlternateDevicePath)
+                || ContainsAtaVendorMarker(device.DeviceInstanceID);
+        }
+
+        private static bool StartsWithAtaMarker(string value)
+        {
+            return !string.IsNullOrWhiteSpace(value)
+                && value.TrimStart().StartsWith("ATA ", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ContainsAtaVendorMarker(string value)
+        {
+            return !string.IsNullOrWhiteSpace(value)
+                && (value.IndexOf("VEN_ATA", StringComparison.OrdinalIgnoreCase) >= 0
+                 || value.IndexOf("VEN&ATA", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         private static bool HasSufficientGenericData(StorageDevice device)
