@@ -47,7 +47,8 @@ namespace DiskInfoToolkit.Probes
             device.Usb.NvmeSetupMode = string.Empty;
 
             string service = StringUtil.TrimStorageString(device.Controller.Service);
-            ushort vendorId = device.Controller.VendorID.GetValueOrDefault();
+            ushort vendorID = device.Controller.VendorID.GetValueOrDefault();
+            string bridgeFamily = StringUtil.TrimStorageString(device.Usb.BridgeFamily);
 
             if (service.Equals(ControllerServiceNames.SecNvme, StringComparison.OrdinalIgnoreCase))
             {
@@ -64,25 +65,30 @@ namespace DiskInfoToolkit.Probes
                 return;
             }
 
-            if (vendorId == VendorIDConstants.JMicron)
+            if (vendorID == VendorIDConstants.JMicron
+             || bridgeFamily.Equals(UsbBridgeFamilyNames.JMicron, StringComparison.OrdinalIgnoreCase))
             {
                 device.Usb.NvmeSetupMode = UsbNvmeSetupModeNames.JMicronPassThrough;
                 return;
             }
 
-            if (vendorId == VendorIDConstants.Realtek)
+            if (vendorID == VendorIDConstants.Realtek
+             || bridgeFamily.Equals(UsbBridgeFamilyNames.Realtek, StringComparison.OrdinalIgnoreCase))
             {
                 device.Usb.NvmeSetupMode = UsbNvmeSetupModeNames.RealtekPassThrough;
                 return;
             }
 
-            if (vendorId == VendorIDConstants.Asmedia)
+            if (vendorID == VendorIDConstants.Asmedia
+             || bridgeFamily.Equals(UsbBridgeFamilyNames.Asmedia, StringComparison.OrdinalIgnoreCase)
+             || IsOtherWorldComputingExpress1M2(device))
             {
                 device.Usb.NvmeSetupMode = UsbNvmeSetupModeNames.ASMediaPassThrough;
                 return;
             }
 
-            if (vendorId == VendorIDConstants.Samsung)
+            if (vendorID == VendorIDConstants.Samsung
+             || bridgeFamily.Equals(UsbBridgeFamilyNames.Samsung, StringComparison.OrdinalIgnoreCase))
             {
                 device.Usb.NvmeSetupMode = UsbNvmeSetupModeNames.SamsungVendorScsi;
                 return;
@@ -98,6 +104,13 @@ namespace DiskInfoToolkit.Probes
 
         #region Private
 
+        private static bool IsOtherWorldComputingExpress1M2(StorageDevice device)
+        {
+            return device != null
+                && device.Controller.VendorID.GetValueOrDefault() == VendorIDConstants.OtherWorldComputing
+                && device.Controller.DeviceID.GetValueOrDefault() == UsbNvmeBridgeProductIDConstants.OtherWorldComputingExpress1M2;
+        }
+
         private static bool IsKnownUsbNvmeController(StorageDevice device)
         {
             if (device == null || !device.Controller.VendorID.HasValue || !device.Controller.DeviceID.HasValue)
@@ -105,27 +118,32 @@ namespace DiskInfoToolkit.Probes
                 return false;
             }
 
-            ushort vendorId = device.Controller.VendorID.Value;
-            ushort productId = device.Controller.DeviceID.Value;
+            ushort vendorID = device.Controller.VendorID.Value;
+            ushort productID = device.Controller.DeviceID.Value;
 
-            if (vendorId == VendorIDConstants.Asmedia)
+            if (vendorID == VendorIDConstants.Asmedia)
             {
-                return productId == 0x2362
-                    || productId == 0x2364;
+                return productID == UsbNvmeBridgeProductIDConstants.AsmediaAsm2362
+                    || productID == UsbNvmeBridgeProductIDConstants.AsmediaAsm2364;
             }
 
-            if (vendorId == VendorIDConstants.Realtek)
+            if (vendorID == VendorIDConstants.Realtek)
             {
-                return productId == 0x9210
-                    || productId == 0x9211
-                    || productId == 0x9220
-                    || productId == 0x9221;
+                return productID == UsbNvmeBridgeProductIDConstants.RealtekRtl9210
+                    || productID == UsbNvmeBridgeProductIDConstants.RealtekRtl9211
+                    || productID == UsbNvmeBridgeProductIDConstants.RealtekRtl9220
+                    || productID == UsbNvmeBridgeProductIDConstants.RealtekRtl9221;
             }
 
-            if (vendorId == VendorIDConstants.JMicron)
+            if (vendorID == VendorIDConstants.JMicron)
             {
-                return productId == 0x0583
-                    || productId == 0x0586;
+                return productID == UsbNvmeBridgeProductIDConstants.JMicronJms583
+                    || productID == UsbNvmeBridgeProductIDConstants.JMicronJms586;
+            }
+
+            if (vendorID == VendorIDConstants.OtherWorldComputing)
+            {
+                return IsOtherWorldComputingExpress1M2(device);
             }
 
             return false;

@@ -38,6 +38,8 @@ namespace DiskInfoToolkit.Constants
 
         public const ushort Genesys = 0x05E3;
 
+        public const ushort OtherWorldComputing = 0x1E91;
+
         #endregion
     }
 }

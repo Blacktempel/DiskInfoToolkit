@@ -21,6 +21,8 @@ namespace DiskInfoToolkit.Probes
 
         private const int NvmeIdentifyBytes = 512;
 
+        private const int NvmeSmartLogBytes = 512;
+
         #endregion
 
         #region Public
@@ -58,13 +60,15 @@ namespace DiskInfoToolkit.Probes
                     }
                 }
 
-                if (!any && device.Controller.VendorID.HasValue)
+                if (!any)
                 {
                     byte[] identifyData = null;
-                    if (TryReadIdentify(device.Controller.VendorID.Value, ioControl, handle, out identifyData))
+                    if (TryReadIdentify(device, ioControl, handle, out identifyData))
                     {
                         device.Nvme.IdentifyControllerData = identifyData;
-                        NvmeProbeUtil.ApplyIdentifyControllerStrings(device, identifyData);
+                        ApplyUsbNvmeIdentifyControllerStrings(device, identifyData);
+
+                        ProbeTraceRecorder.Add(device, "USB NVMe: " + device.Usb.NvmeSetupMode + " identify succeeded.");
                         any = true;
                     }
                 }
@@ -83,14 +87,16 @@ namespace DiskInfoToolkit.Probes
                     return false;
                 }
 
-                if ((device.Nvme.SmartLogData == null || device.Nvme.SmartLogData.Length == 0) && device.Controller.VendorID.HasValue)
+                if (device.Nvme.SmartLogData == null || device.Nvme.SmartLogData.Length == 0)
                 {
                     byte[] smartLogData = null;
-                    if (TryReadSmartLog(device.Controller.VendorID.Value, ioControl, handle, out smartLogData))
+                    if (TryReadSmartLog(device, ioControl, handle, out smartLogData))
                     {
                         device.Nvme.SmartLogData = smartLogData;
                         device.SupportsSmart = true;
                         NvmeSmartLogParser.Apply(device, smartLogData);
+
+                        ProbeTraceRecorder.Add(device, "USB NVMe: " + device.Usb.NvmeSetupMode + " SMART succeeded.");
                     }
                 }
 
@@ -135,20 +141,20 @@ namespace DiskInfoToolkit.Probes
             return text.IndexOf(UsbBridgeFamilyNames.Samsung, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static bool TryReadIdentify(ushort vendorId, IStorageIoControl ioControl, SafeFileHandle handle, out byte[] identifyData)
+        private static bool TryReadIdentify(StorageDevice device, IStorageIoControl ioControl, SafeFileHandle handle, out byte[] identifyData)
         {
             identifyData = null;
-            if (vendorId == VendorIDConstants.Asmedia)
+            if (UsesBridgePassThrough(device, UsbNvmeSetupModeNames.ASMediaPassThrough, UsbBridgeFamilyNames.Asmedia, VendorIDConstants.Asmedia))
             {
                 return TryAsmediaIdentify(ioControl, handle, out identifyData);
             }
 
-            if (vendorId == VendorIDConstants.Realtek)
+            if (UsesBridgePassThrough(device, UsbNvmeSetupModeNames.RealtekPassThrough, UsbBridgeFamilyNames.Realtek, VendorIDConstants.Realtek))
             {
                 return TryRealtekIdentify(ioControl, handle, out identifyData);
             }
 
-            if (vendorId == VendorIDConstants.JMicron)
+            if (UsesBridgePassThrough(device, UsbNvmeSetupModeNames.JMicronPassThrough, UsbBridgeFamilyNames.JMicron, VendorIDConstants.JMicron))
             {
                 return TryJmicronIdentify(ioControl, handle, out identifyData);
             }
@@ -156,25 +162,84 @@ namespace DiskInfoToolkit.Probes
             return false;
         }
 
-        private static bool TryReadSmartLog(ushort vendorId, IStorageIoControl ioControl, SafeFileHandle handle, out byte[] smartLogData)
+        private static bool TryReadSmartLog(StorageDevice device, IStorageIoControl ioControl, SafeFileHandle handle, out byte[] smartLogData)
         {
             smartLogData = null;
-            if (vendorId == VendorIDConstants.Asmedia)
+            if (UsesBridgePassThrough(device, UsbNvmeSetupModeNames.ASMediaPassThrough, UsbBridgeFamilyNames.Asmedia, VendorIDConstants.Asmedia))
             {
                 return TryAsmediaSmartLog(ioControl, handle, out smartLogData);
             }
 
-            if (vendorId == VendorIDConstants.Realtek)
+            if (UsesBridgePassThrough(device, UsbNvmeSetupModeNames.RealtekPassThrough, UsbBridgeFamilyNames.Realtek, VendorIDConstants.Realtek))
             {
                 return TryRealtekSmartLog(ioControl, handle, out smartLogData);
             }
 
-            if (vendorId == VendorIDConstants.JMicron)
+            if (UsesBridgePassThrough(device, UsbNvmeSetupModeNames.JMicronPassThrough, UsbBridgeFamilyNames.JMicron, VendorIDConstants.JMicron))
             {
                 return TryJmicronSmartLog(ioControl, handle, out smartLogData);
             }
 
             return false;
+        }
+
+        private static void ApplyUsbNvmeIdentifyControllerStrings(StorageDevice device, byte[] identifyData)
+        {
+            NvmeProbeUtil.ApplyIdentifyControllerStrings(device, identifyData);
+
+            string model = NvmeProbeUtil.ReadAscii(identifyData, 24, 40);
+            if (!IsPlausibleIdentifyText(model, 40))
+            {
+                return;
+            }
+
+            device.ProductName = model;
+            device.DisplayName = model;
+        }
+
+        private static bool IsPlausibleIdentifyText(string value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length > maxLength)
+            {
+                return false;
+            }
+
+            bool hasAlphaNumeric = false;
+            for (int i = 0; i < value.Length; ++i)
+            {
+                char c = value[i];
+                if (c < 0x20 || c > 0x7E)
+                {
+                    return false;
+                }
+
+                if (char.IsLetterOrDigit(c))
+                {
+                    hasAlphaNumeric = true;
+                }
+            }
+
+            return hasAlphaNumeric;
+        }
+
+        private static bool UsesBridgePassThrough(StorageDevice device, string setupMode, string bridgeFamily, ushort nativeVendorID)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            if (StringUtil.TrimStorageString(device.Usb.NvmeSetupMode).Equals(setupMode, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (StringUtil.TrimStorageString(device.Usb.BridgeFamily).Equals(bridgeFamily, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return device.Controller.VendorID.GetValueOrDefault() == nativeVendorID;
         }
 
         private static bool TryAsmediaIdentify(IStorageIoControl ioControl, SafeFileHandle handle, out byte[] identifyData)
@@ -287,9 +352,9 @@ namespace DiskInfoToolkit.Probes
         {
             smartLogData = null;
 
-            var buffer = new byte[92 + BufferSizeConstants.Size4K];
+            var buffer = new byte[92 + NvmeSmartLogBytes];
 
-            BuildScsiPassThroughHeader(buffer, 16, 24, true, BufferSizeConstants.Size4K, 2, 92, 60);
+            BuildScsiPassThroughHeader(buffer, 16, 24, true, NvmeSmartLogBytes, 2, 92, 60);
             buffer[36] = 0xE6;
             buffer[37] = 0x02;
             buffer[39] = 0x02;
@@ -305,7 +370,7 @@ namespace DiskInfoToolkit.Probes
                 return false;
             }
 
-            smartLogData = new byte[512];
+            smartLogData = new byte[NvmeSmartLogBytes];
             Buffer.BlockCopy(buffer, 92, smartLogData, 0, smartLogData.Length);
             return NvmeProbeUtil.HasAnyNonZeroByte(smartLogData);
         }

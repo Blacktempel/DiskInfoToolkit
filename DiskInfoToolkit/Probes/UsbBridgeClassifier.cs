@@ -23,7 +23,8 @@ namespace DiskInfoToolkit.Probes
                 return;
             }
 
-            ushort vendorId = device.Controller.VendorID.GetValueOrDefault();
+            ushort vendorID = device.Controller.VendorID.GetValueOrDefault();
+            ushort productID = device.Controller.DeviceID.GetValueOrDefault();
             string service = StringUtil.TrimStorageString(device.Controller.Service);
 
             device.Usb.IsMassStorageLike =
@@ -43,7 +44,12 @@ namespace DiskInfoToolkit.Probes
                 device.Usb.MassStorageProtocolName = UsbMassStorageProtocolNames.Asus;
             }
 
-            switch (vendorId)
+            if (vendorID == VendorIDConstants.OtherWorldComputing
+             && productID == UsbNvmeBridgeProductIDConstants.OtherWorldComputingExpress1M2)
+            {
+                device.Usb.BridgeFamily = UsbBridgeFamilyNames.Asmedia;
+            }
+            else switch (vendorID)
             {
                 case VendorIDConstants.Asmedia:
                     device.Usb.BridgeFamily = UsbBridgeFamilyNames.Asmedia;
