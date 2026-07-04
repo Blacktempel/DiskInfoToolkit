@@ -198,6 +198,11 @@ namespace DiskInfoToolkit.Core
 
         internal static void AttachStandardStorageProperties(StorageDevice device, IStorageIoControl ioControl)
         {
+            AttachStandardStorageProperties(device, ioControl, true);
+        }
+
+        internal static void AttachStandardStorageProperties(StorageDevice device, IStorageIoControl ioControl, bool refreshSmartData)
+        {
             if (string.IsNullOrWhiteSpace(device.DevicePath))
             {
                 return;
@@ -269,7 +274,8 @@ namespace DiskInfoToolkit.Core
                     device.Scsi.Lun        = scsiAddress.Lun;
                 }
 
-                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.SmartVersion)
+                if (refreshSmartData
+                 && ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.SmartVersion)
                  && ioControl.TryGetSmartVersion(handle, out var smartVersionInfo))
                 {
                     RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.SmartVersion);
@@ -294,7 +300,8 @@ namespace DiskInfoToolkit.Core
                     device.DiskSizeBytes = geometryInfo.DiskSize;
                 }
 
-                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.PredictFailure)
+                if (refreshSmartData
+                 && ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.PredictFailure)
                  && ioControl.TryGetPredictFailure(handle, out var predictFailureInfo))
                 {
                     RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.PredictFailure);

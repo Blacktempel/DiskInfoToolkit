@@ -200,7 +200,21 @@ namespace DiskInfoToolkit
         /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool Refresh(StorageDevice device)
         {
-            return Refresh(device, true, true);
+            return Refresh(device, true, true, true);
+        }
+
+        /// <summary>
+        /// Refreshes the current state of the specified storage device.
+        /// </summary>
+        /// <param name="device">The device to refresh.</param>
+        /// <param name="refreshSmartData">Whether to refresh SMART data. When disabled, previously collected SMART data is retained.</param>
+        /// <returns>Whether the device state was successfully refreshed or device had no changes.</returns>
+        /// <remarks>After the first full probe, compatible devices reuse their cached successful probe path and refresh only volatile disk data where possible.<br/>
+        /// Polling HDD SMART data too frequently may cause performance degradation or audible clicking on some drives or USB/SATA bridges.<br/>
+        /// Applications should throttle HDD refresh intervals appropriately.</remarks>
+        public static bool Refresh(StorageDevice device, bool refreshSmartData)
+        {
+            return Refresh(device, true, true, refreshSmartData);
         }
 
         /// <summary>
@@ -213,7 +227,7 @@ namespace DiskInfoToolkit
         /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool RefreshVolatileData(StorageDevice device)
         {
-            return Refresh(device, true, true);
+            return Refresh(device, true, true, true);
         }
 
         /// <summary>
@@ -245,6 +259,22 @@ namespace DiskInfoToolkit
         /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool Refresh(StorageDevice device, bool refreshProbeData, bool refreshPartitions)
         {
+            return Refresh(device, refreshProbeData, refreshPartitions, true);
+        }
+
+        /// <summary>
+        /// Refreshes the current state of the specified storage device.
+        /// </summary>
+        /// <param name="device">The device to refresh.</param>
+        /// <param name="refreshProbeData">Whether to refresh the probe data.</param>
+        /// <param name="refreshPartitions">Whether to refresh the partitions.</param>
+        /// <param name="refreshSmartData">Whether to refresh SMART data as part of the probe data refresh. When disabled, previously collected SMART data is retained.</param>
+        /// <returns>Whether the device state was successfully refreshed or device had no changes.</returns>
+        /// <remarks>After the first full probe, compatible devices reuse their cached successful probe path and refresh only volatile disk data where possible.<br/>
+        /// Polling HDD SMART data too frequently may cause performance degradation or audible clicking on some drives or USB/SATA bridges.<br/>
+        /// Applications should throttle HDD refresh intervals appropriately.</remarks>
+        public static bool Refresh(StorageDevice device, bool refreshProbeData, bool refreshPartitions, bool refreshSmartData)
+        {
             if (device == null)
             {
                 throw new ArgumentNullException(nameof(device));
@@ -255,7 +285,7 @@ namespace DiskInfoToolkit
 
             if (refreshProbeData)
             {
-                RefreshSingleDeviceProbeData(refreshed, ioControl);
+                RefreshSingleDeviceProbeData(refreshed, ioControl, refreshSmartData);
             }
 
             if (refreshPartitions)
@@ -443,7 +473,7 @@ namespace DiskInfoToolkit
             return disks;
         }
 
-        private static void RefreshSingleDeviceProbeData(StorageDevice device, IStorageIoControl ioControl)
+        private static void RefreshSingleDeviceProbeData(StorageDevice device, IStorageIoControl ioControl, bool refreshSmartData)
         {
             if (device == null || ioControl == null)
             {
@@ -452,23 +482,24 @@ namespace DiskInfoToolkit
 
             bool canUseCachedProbePlan = CanUseCachedProbePlanForRefresh(device);
 
-            if (canUseCachedProbePlan)
+            device.ProbeTrace = new List<string>();
+
+            if (!canUseCachedProbePlan)
             {
-                device.ProbeTrace = new List<string>();
-            }
-            else
-            {
-                ResetVolatileProbeData(device);
+                if (refreshSmartData)
+                {
+                    ResetVolatileProbeData(device);
+                }
 
                 //Refresh the IOCTL-backed base properties for this single device only
                 //Do not enumerate all disks here
-                StorageDetectionEngine.AttachStandardStorageProperties(device, ioControl);
+                StorageDetectionEngine.AttachStandardStorageProperties(device, ioControl, refreshSmartData);
                 StorageDetectionEngine.SelectProbeStrategy(device);
             }
 
             if (!device.IsFiltered)
             {
-                StorageProbeDispatcher.Probe(device, ioControl);
+                StorageProbeDispatcher.Probe(device, ioControl, refreshSmartData);
             }
         }
 

@@ -18,12 +18,24 @@ namespace DiskInfoToolkit.Core
 
         public static void Probe(StorageDevice device, IStorageIoControl ioControl)
         {
+            Probe(device, ioControl, true);
+        }
+
+        internal static void Probe(StorageDevice device, IStorageIoControl ioControl, bool refreshSmartData)
+        {
             if (device == null)
             {
                 throw new ArgumentNullException(nameof(device));
             }
 
             ProbeTraceRecorder.Add(device, $"Probe start: strategy={device.ProbeStrategy}, service={device.Controller.Service}, class={device.Controller.Class}");
+
+            if (!refreshSmartData)
+            {
+                ProbeTraceRecorder.Add(device, "Probe refresh: SMART data refresh skipped by caller.");
+                ProbeGlueLogic.FinalizeDevice(device);
+                return;
+            }
 
             bool createdNewProbePlan = false;
 
