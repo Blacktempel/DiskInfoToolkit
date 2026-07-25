@@ -753,19 +753,19 @@ namespace DiskInfoToolkit.Smart
         private static bool IsWdc(string model, string combined)
         {
             if (ModelStartsWith(model, "WDS")
-                || ModelContains(model, "SA530")
-                || ModelContains(model, "WD BLUE")
-                || ModelContains(model, "WD GREEN")
-                || ModelContains(model, "WD RED")
-                || TextContains(combined, "WD SSD"))
+             || ModelStartsWith(model, "WDC ")
+             || ModelStartsWith(model, "WD ")
+             || ModelContains(model, "SA530")
+             || ModelContains(model, "WD BLUE")
+             || ModelContains(model, "WD GREEN")
+             || ModelContains(model, "WD RED")
+             || TextContains(combined, "WD SSD"))
             {
                 return true;
             }
 
             return LooksLikeSsdModel(model, combined)
-                && (TextContains(combined, "WDC")
-                    || TextContains(combined, "WESTERN DIGITAL")
-                    || ModelStartsWith(model, "WD "));
+                && TextContains(combined, "WESTERN DIGITAL");
         }
 
         private static bool IsYmtc(string model, string combined)
