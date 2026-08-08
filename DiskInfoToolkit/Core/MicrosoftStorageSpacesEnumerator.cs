@@ -223,18 +223,13 @@ namespace DiskInfoToolkit.Core
                 IoCreation.OpenExisting,
                 IoFlags.Normal);
 
-            if (handle == null)
+            using (handle)
             {
-                return null;
+                if (handle == null || handle.IsInvalid)
+                {
+                    return null;
+                }
             }
-
-            if (handle.IsInvalid)
-            {
-                handle.Dispose();
-                return null;
-            }
-
-            handle.Dispose();
 
             var device = new StorageDevice
             {

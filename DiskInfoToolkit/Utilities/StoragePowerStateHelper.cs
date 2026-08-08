@@ -28,7 +28,7 @@ namespace DiskInfoToolkit.Utilities
 
             //Open device for query operations only,
             //as opening for smart read/write operations can already spin up the disk.
-            SafeFileHandle handle = Kernel32Native.CreateFile(
+            using SafeFileHandle handle = Kernel32Native.CreateFile(
                 path,
                 0,
                 IoShare.Read,
