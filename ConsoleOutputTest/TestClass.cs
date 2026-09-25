@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -76,6 +76,27 @@ namespace ConsoleOutputTest
             sw.Stop();
 
             WriteOutput($"### Detecting all disks took {sw.Elapsed.TotalMilliseconds:F2} ms. ###");
+            WriteOutput();
+
+            sw.Restart();
+
+            WriteOutput("### Detecting Microsoft Storage Spaces pools. ###");
+            WriteOutput();
+
+            //Reuse the disk objects printed above. A pool member must reference one of these
+            //objects rather than making the console test probe that disk a second time.
+            var pools = Storage.GetStoragePools(disks);
+
+            foreach (var pool in pools)
+            {
+                WriteOutput($"'{pool.Name}':");
+                PrintPublicProperties(pool, level: 1, summarizeStorageDevices: true);
+                WriteOutput();
+            }
+
+            sw.Stop();
+
+            WriteOutput($"### Detecting {pools.Count} Microsoft Storage Spaces pools took {sw.Elapsed.TotalMilliseconds:F2} ms. ###");
             WriteOutput();
 
             //Register change event
@@ -168,11 +189,28 @@ namespace ConsoleOutputTest
             }
         }
 
-        private static void PrintPublicProperties(object obj, bool skipArrays = true, int level = 0, HashSet<object> visited = null)
+        /// <summary>
+        /// Writes public properties recursively and summarizes disk references inside pool snapshots.
+        /// </summary>
+        /// <param name="obj">The object whose properties are printed.</param>
+        /// <param name="skipArrays">Whether large array values are omitted.</param>
+        /// <param name="level">The indentation level.</param>
+        /// <param name="visited">Objects already expanded in the current snapshot.</param>
+        /// <param name="summarizeStorageDevices">Whether referenced disks use a short identity line.</param>
+        private static void PrintPublicProperties(object obj, bool skipArrays = true, int level = 0,
+            HashSet<object> visited = null, bool summarizeStorageDevices = false)
         {
             if (obj is null)
             {
                 WriteOutput("null", level);
+                return;
+            }
+
+            // The full StorageDevice dump was already printed before the pool snapshot.
+            // Summarize references each time they occur, including across multiple spaces.
+            if (summarizeStorageDevices && obj is StorageDevice referencedDisk)
+            {
+                WriteOutput($"Name: {referencedDisk.DisplayName} | Serial: {referencedDisk.SerialNumber} | Path: {referencedDisk.DevicePath}", level);
                 return;
             }
 
@@ -220,37 +258,36 @@ namespace ConsoleOutputTest
 
                 if (value is IEnumerable enumerable && value is not string)
                 {
-                    WriteOutput($"{property.Name}:", level);
+                    string label = value is ICollection collection
+                        ? $"{property.Name} ({collection.Count}):"
+                        : $"{property.Name}:";
+
+                    WriteOutput(label, level);
 
                     if (value is Array && skipArrays)
                     {
                         WriteOutput($"Skipping array.", level + 1);
-                    }
-                    else if (value is IEnumerable<string> strings)
-                    {
-                        var index = 0;
-                        foreach (var str in strings)
-                        {
-                            WriteOutput($"[{index}]: {str}", level + 1);
-                            index++;
-                        }
-                    }
-                    else if (value is IEnumerable e && e.GetType().GetGenericArguments()?[0]?.IsEnum == true)
-                    {
-                        var index = 0;
-                        foreach (Enum val in e)
-                        {
-                            WriteOutput($"[{index}]: {val}", level + 1);
-                            index++;
-                        }
                     }
                     else
                     {
                         var index = 0;
                         foreach (var item in enumerable)
                         {
-                            WriteOutput($"[{index}]", level + 1);
-                            PrintPublicProperties(item, skipArrays, level + 2, visited);
+                            if (item is null || IsSimpleType(item.GetType()))
+                            {
+                                // GUID lists such as MemberDiskIDs must show their values.
+                                WriteOutput($"[{index}]: {item?.ToString() ?? "null"}", level + 1);
+                            }
+                            else if (summarizeStorageDevices && item is StorageDevice referencedMember)
+                            {
+                                WriteOutput($"[{index}]: Name: {referencedMember.DisplayName} | Serial: {referencedMember.SerialNumber} | Path: {referencedMember.DevicePath}", level + 1);
+                            }
+                            else
+                            {
+                                WriteOutput($"[{index}]", level + 1);
+                                PrintPublicProperties(item, skipArrays, level + 2, visited, summarizeStorageDevices);
+                            }
+
                             index++;
                         }
                     }
@@ -259,7 +296,7 @@ namespace ConsoleOutputTest
                 }
 
                 WriteOutput($"{property.Name}:", level);
-                PrintPublicProperties(value, skipArrays, level + 1, visited);
+                PrintPublicProperties(value, skipArrays, level + 1, visited, summarizeStorageDevices);
             }
         }
 
