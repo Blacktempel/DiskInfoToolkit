@@ -313,6 +313,52 @@ namespace DiskInfoToolkit.Tests.Core
         }
 
         /// <summary>
+        /// Reads the space's own health and its operational status array, in Windows' order.
+        /// </summary>
+        [TestMethod]
+        public void ParsesSpaceHealthAndOperationalStatus()
+        {
+            var poolID = Guid.NewGuid();
+            var spaceID = Guid.NewGuid();
+
+            // Degraded with a lost disk: Warning, then Degraded, Incomplete, InService.
+            var bytes = CreateSpaceInfo(poolID, spaceID, 2, 3, 4, 5);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out var space));
+            Assert.AreEqual(StoragePoolHealthStatus.Warning, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Degraded, StorageSpaceOperationalStatus.Incomplete,
+                StorageSpaceOperationalStatus.InService }, space.OperationalStatus.ToArray());
+
+            bytes = CreateSpaceInfo(poolID, spaceID, 3, 7);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
+            Assert.AreEqual(StoragePoolHealthStatus.Healthy, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.OK }, space.OperationalStatus.ToArray());
+
+            bytes = CreateSpaceInfo(poolID, spaceID, 1, 1);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
+            Assert.AreEqual(StoragePoolHealthStatus.Unhealthy, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Detached }, space.OperationalStatus.ToArray());
+
+            // Unverified codes stay unknown rather than being guessed.
+            bytes = CreateSpaceInfo(poolID, spaceID, 9, 9);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
+            Assert.AreEqual(StoragePoolHealthStatus.Unknown, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Unknown }, space.OperationalStatus.ToArray());
+
+            // The status array ends before the value that always follows it at 0xA60.
+            bytes = CreateSpaceInfo(poolID, spaceID, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3);
+            PutUInt32(bytes, 0xA60, 5);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
+            Assert.AreEqual(10, space.OperationalStatus.Count);
+
+            // A truncated response carries the same fixed fields.
+            bytes = CreateSpaceInfo(poolID, spaceID, 2, 3);
+            PutUInt32(bytes, 4, 0x1100000);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, true, out space));
+            Assert.AreEqual(StoragePoolHealthStatus.Warning, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Degraded }, space.OperationalStatus.ToArray());
+        }
+
+        /// <summary>
         /// Keeps a large space whose extent array did not fit, without reporting partial extents.
         /// </summary>
         [TestMethod]
@@ -453,6 +499,33 @@ namespace DiskInfoToolkit.Tests.Core
         /// <param name="offset">The field offset.</param>
         /// <param name="value">The text to write.</param>
         private static void PutText(byte[] bytes, int offset, string value) => Encoding.Unicode.GetBytes(value).CopyTo(bytes, offset);
+
+        /// <summary>
+        /// Builds a synthetic space-information response with health and operational status.
+        /// </summary>
+        /// <param name="poolID">The pool identifier.</param>
+        /// <param name="spaceID">The storage space identifier.</param>
+        /// <param name="health">The raw health value.</param>
+        /// <param name="operationalStatus">The raw operational status values.</param>
+        /// <returns>The response buffer.</returns>
+        private static byte[] CreateSpaceInfo(Guid poolID, Guid spaceID, uint health, params uint[] operationalStatus)
+        {
+            var bytes = new byte[0xBD8];
+
+            PutUInt32(bytes, 0, 0xBD8);
+            PutUInt32(bytes, 4, (uint)bytes.Length);
+            PutGuid(bytes, 8, poolID);
+            PutGuid(bytes, 0x18, spaceID);
+            PutText(bytes, 0x28, "Test Space");
+            PutUInt32(bytes, 0xA34, health);
+
+            for (int i = 0; i < operationalStatus.Length; ++i)
+            {
+                PutUInt32(bytes, 0xA38 + i * 4, operationalStatus[i]);
+            }
+
+            return bytes;
+        }
 
         /// <summary>
         /// Builds a synthetic disk-information response with packed strings and their offset fields.

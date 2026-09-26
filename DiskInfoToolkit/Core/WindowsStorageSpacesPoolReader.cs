@@ -87,6 +87,9 @@ namespace DiskInfoToolkit.Core
         private const int  SpaceNameCharacters        = 256;
         private const int  SpaceDescriptionOffset     = 0x228;
         private const int  SpaceDescriptionCharacters = 1024;
+        private const int  SpaceHealthOffset          = 0xA34;
+        private const int  SpaceStatusOffset          = 0xA38;
+        private const int  SpaceStatusEnd             = 0xA60;
         private const int  SpaceSizeOffset            = 0xA68;
         private const int  SpaceAllocatedOffset       = 0xA70;
         private const int  SpaceFootprintOffset       = 0xA78;
@@ -489,6 +492,26 @@ namespace DiskInfoToolkit.Core
                 BitConverter.ToUInt64(buffer, SpaceSizeOffset),
                 BitConverter.ToUInt64(buffer, SpaceAllocatedOffset),
                 BitConverter.ToUInt64(buffer, SpaceFootprintOffset));
+
+            // 0xA34 is the space's own health (3 Healthy, 2 Warning, 1 Unhealthy). From 0xA38 a
+            // zero-terminated array of operational status codes follows, most significant first,
+            // matching WMI's OperationalStatus (e.g. 3 Degraded, 4 Incomplete, 5 InService).
+            // Both sit in the fixed structure, so a truncated response still carries them.
+            var operationalStatus = new List<uint>();
+
+            for (int offset = SpaceStatusOffset; offset < SpaceStatusEnd; offset += sizeof(uint))
+            {
+                uint value = BitConverter.ToUInt32(buffer, offset);
+
+                if (value == 0)
+                {
+                    break;
+                }
+
+                operationalStatus.Add(value);
+            }
+
+            space.SetStatus(BitConverter.ToUInt32(buffer, SpaceHealthOffset), operationalStatus);
 
             if (extentDiskIDs != null)
             {

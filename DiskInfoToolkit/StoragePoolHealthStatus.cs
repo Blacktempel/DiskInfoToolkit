@@ -9,7 +9,7 @@
 namespace DiskInfoToolkit
 {
     /// <summary>
-    /// The health of a Microsoft Storage Spaces pool, independent of member disk SMART health.
+    /// The health of a Microsoft Storage Spaces pool or storage space, independent of member disk SMART health.
     /// </summary>
     public enum StoragePoolHealthStatus
     {
@@ -21,17 +21,17 @@ namespace DiskInfoToolkit
         Unknown,
 
         /// <summary>
-        /// The pool is healthy.
+        /// The pool or space is healthy.
         /// </summary>
         Healthy,
 
         /// <summary>
-        /// The pool is accessible but degraded.
+        /// The pool or space is accessible but degraded.
         /// </summary>
         Warning,
 
         /// <summary>
-        /// The pool is unhealthy, for example read-only after losing more disks than it can tolerate.
+        /// The pool or space is unhealthy, for example read-only after losing more disks than it can tolerate.
         /// </summary>
         Unhealthy
 
