@@ -123,24 +123,73 @@ namespace DiskInfoToolkit.Tests.Core
         }
 
         /// <summary>
-        /// Reads the complete fixed-width serial and rejects a different member identifier.
+        /// Locates an ATA serial through the offset table, wherever the packed strings place it.
         /// </summary>
         [TestMethod]
-        public void ReadsFixedLengthSerialFromDriverDiskInformation()
+        public void ReadsAtaSerialThroughOffsetTable()
+        {
+            // Shape observed on a SATA member: a 3-character vendor moves the serial to 0xBD4.
+            var poolID = Guid.NewGuid();
+            var diskID = Guid.NewGuid();
+            var bytes = CreateDiskInfo(poolID, diskID, 0xD30,
+                (0xA30, 0xBA0, "ATA"),
+                (0xA34, 0xBA8, "WDC WD40EFZX-68A"),
+                (0xA38, 0xBCA, "0B81"),
+                (0xA3C, 0xBD4, "WD-WX00000000AB"),
+                (0xA7C, 0xBF4, "Integrated : Bus 13 : Device 0 : Function 0 : Adapter 0 : Port 0 : Target 10 : LUN 0"));
+
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out var serials));
+            CollectionAssert.AreEqual(new[] { "WD-WX00000000AB" }, serials);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, Guid.NewGuid(), out _));
+        }
+
+        /// <summary>
+        /// Prefers the trimmed NVMe serial over the EUI-based one and keeps both as candidates.
+        /// </summary>
+        [TestMethod]
+        public void PrefersTrimmedNvmeSerial()
         {
             var poolID = Guid.NewGuid();
             var diskID = Guid.NewGuid();
-            var bytes = new byte[0xD30];
+            var bytes = CreateDiskInfo(poolID, diskID, 0xD98,
+                (0xA34, 0xBA0, "WD_BLACK SN770 1TB"),
+                (0xA38, 0xBC6, "731100WD"),
+                (0xA3C, 0xBD8, "0000_0000_0000_0001_0000_0000_0000_0000."),
+                (0xA40, 0xC2A, "0000AB000000        _0000"),
+                (0xA44, 0xC5E, "0000AB000000"));
 
-            PutUInt32(bytes, 0, 0xC30);
-            PutUInt32(bytes, 4, (uint)bytes.Length);
-            PutGuid(bytes, 8, poolID);
-            PutGuid(bytes, 24, diskID);
-            PutText(bytes, 0xBFC, "SOME-SERIAL-0001");
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out var serials));
+            CollectionAssert.AreEqual(new[] { "0000AB000000", "0000_0000_0000_0001_0000_0000_0000_0000." }, serials);
 
-            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseDiskSerial(bytes, bytes.Length, poolID, diskID, out var serial));
-            Assert.AreEqual("SOME-SERIAL-0001", serial);
-            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerial(bytes, bytes.Length, poolID, Guid.NewGuid(), out _));
+            var nvme = new StorageDevice { SerialNumber = "0000AB000000" };
+            Assert.AreSame(nvme, WindowsStorageSpacesPoolReader.FindUniqueDiskBySerial(new[] { nvme }, serials[0]));
+        }
+
+        /// <summary>
+        /// Ignores serial offsets that are absent, outside the response or unterminated.
+        /// </summary>
+        [TestMethod]
+        public void RejectsSerialOutsideResponse()
+        {
+            var poolID = Guid.NewGuid();
+            var diskID = Guid.NewGuid();
+
+            // No serial offsets at all, as seen on virtual disks.
+            var bytes = CreateDiskInfo(poolID, diskID, 0xCDC, (0xA30, 0xBA0, "Msft"));
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out _));
+
+            // Offset beyond the returned length.
+            bytes = CreateDiskInfo(poolID, diskID, 0xCDC, (0xA3C, 0xBD4, "WD-WX00000000AB"));
+            PutUInt32(bytes, 0xA3C, 0xCDC);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out _));
+
+            // Offset pointing into the fixed fields.
+            PutUInt32(bytes, 0xA3C, 0x18);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out _));
+
+            // Text that reaches the end of the response without a terminator.
+            bytes = CreateDiskInfo(poolID, diskID, 0xC30, (0xA3C, 0xC20, "12345678"));
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out _));
         }
 
         /// <summary>
@@ -338,6 +387,32 @@ namespace DiskInfoToolkit.Tests.Core
         /// <param name="offset">The field offset.</param>
         /// <param name="value">The text to write.</param>
         private static void PutText(byte[] bytes, int offset, string value) => Encoding.Unicode.GetBytes(value).CopyTo(bytes, offset);
+
+        /// <summary>
+        /// Builds a synthetic disk-information response with packed strings and their offset fields.
+        /// </summary>
+        /// <param name="poolID">The pool identifier.</param>
+        /// <param name="diskID">The member identifier.</param>
+        /// <param name="length">The response length.</param>
+        /// <param name="strings">Each offset field, the string's offset and its text.</param>
+        /// <returns>The response buffer.</returns>
+        private static byte[] CreateDiskInfo(Guid poolID, Guid diskID, int length, params (int Field, int Offset, string Text)[] strings)
+        {
+            var bytes = new byte[length];
+
+            PutUInt32(bytes, 0, 0xC30);
+            PutUInt32(bytes, 4, (uint)length);
+            PutGuid(bytes, 8, poolID);
+            PutGuid(bytes, 24, diskID);
+
+            foreach (var (field, offset, text) in strings)
+            {
+                PutUInt32(bytes, field, (uint)offset);
+                PutText(bytes, offset, text);
+            }
+
+            return bytes;
+        }
 
         #endregion
     }

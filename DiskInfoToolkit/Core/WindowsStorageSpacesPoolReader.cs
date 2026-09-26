@@ -63,12 +63,17 @@ namespace DiskInfoToolkit.Core
         private const int PoolConfiguredMembersOffset = 0xA50;
         private const int PoolInfoMinSize             = PoolConfiguredMembersOffset + sizeof(uint);
 
-        // Fixed fields in SpIoctlGetDiskInfo output.
-        private const int  MemberPoolIDOffset     = 0x08;
-        private const int  MemberIDOffset         = 0x18;
-        private const int  MemberSerialOffset     = 0xBFC;
-        private const int  MemberSerialCharacters = 16;
-        private const int  DiskInfoMinSize        = MemberSerialOffset + MemberSerialCharacters * sizeof(char);
+        // Fixed fields in SpIoctlGetDiskInfo output. Identity strings are packed, NUL-terminated
+        // UTF-16 text after the fixed fields, so their positions depend on the lengths of the
+        // strings before them. A table of byte offsets locates each one; zero means absent.
+        // 0xA30 vendor, 0xA34 product, 0xA38 firmware, 0xA3C serial, 0xA40 raw serial,
+        // 0xA44 trimmed serial (seen on NVMe only), 0xA7C location, 0xA80 PnP device ID.
+        private const int  MemberPoolIDOffset           = 0x08;
+        private const int  MemberIDOffset               = 0x18;
+        private const int  MemberSerialOffsetField      = 0xA3C;
+        private const int  MemberShortSerialOffsetField = 0xA44;
+        private const int  MemberStringTableEnd         = 0xA88;
+        private const int  DiskInfoMinSize              = MemberStringTableEnd;
         private const uint PoolInfoStructureSize  = 0xB10;
         private const uint DiskInfoStructureSize  = 0xC30;
 
@@ -184,13 +189,23 @@ namespace DiskInfoToolkit.Core
                             var diskInfo = new byte[InfoBufferSize];
 
                             if (!ioControl.SendRawIoControl(handle, GetPoolDiskInfoIoctl, diskInfoInput, diskInfo, out int diskInfoLength)
-                             || !TryParseDiskSerial(diskInfo, diskInfoLength, poolID, memberID, out string serial))
+                             || !TryParseDiskSerials(diskInfo, diskInfoLength, poolID, memberID, out var serials))
                             {
                                 continue;
                             }
 
-                            // Find the first disk with a matching serial number.
-                            var match = FindUniqueDiskBySerial(disks, serial);
+                            // Use the first serial that identifies exactly one disk.
+                            StorageDevice match = null;
+
+                            foreach (var serial in serials)
+                            {
+                                match = FindUniqueDiskBySerial(disks, serial);
+
+                                if (match != null)
+                                {
+                                    break;
+                                }
+                            }
 
                             if (match != null)
                             {
@@ -339,17 +354,17 @@ namespace DiskInfoToolkit.Core
         }
 
         /// <summary>
-        /// Reads the member serial used to identify an already detected physical disk.
+        /// Reads the member serials used to identify an already detected physical disk.
         /// </summary>
         /// <param name="buffer">The IOCTL output buffer.</param>
         /// <param name="length">The number of bytes actually returned by DeviceIoControl.</param>
         /// <param name="expectedPoolID">The pool identifier used in the request.</param>
         /// <param name="expectedDiskID">The member identifier used in the request.</param>
-        /// <param name="serial">The physical serial when the response is valid.</param>
-        /// <returns>Whether the complete serial field is available.</returns>
-        internal static bool TryParseDiskSerial(byte[] buffer, int length, Guid expectedPoolID, Guid expectedDiskID, out string serial)
+        /// <param name="serials">The candidate serials, most specific first, when the response is valid.</param>
+        /// <returns>Whether at least one complete serial is available.</returns>
+        internal static bool TryParseDiskSerials(byte[] buffer, int length, Guid expectedPoolID, Guid expectedDiskID, out List<string> serials)
         {
-            serial = string.Empty;
+            serials = new();
 
             if (!HasValidInfoResponse(buffer, length, DiskInfoMinSize, DiskInfoStructureSize)
              || ReadGuid(buffer, MemberPoolIDOffset) != expectedPoolID
@@ -358,12 +373,21 @@ namespace DiskInfoToolkit.Core
                 return false;
             }
 
-            // A missing disk still produced a short response during testing. Requiring the
-            // complete field prevents an incomplete record from matching a present disk.
-            // The second 16-WCHAR serial at 0xBFC matches StorageDevice.SerialNumber.
-            serial = ReadUtf16(buffer, MemberSerialOffset, MemberSerialCharacters);
+            // NVMe disks report a trimmed serial at 0xA44 that matches StorageDevice.SerialNumber,
+            // while their 0xA3C serial is the EUI-based one. ATA disks have no 0xA44 string and
+            // their 0xA3C serial matches. A missing disk still produced a short response during
+            // testing, so a string must end inside the response to count.
+            foreach (int field in new[] { MemberShortSerialOffsetField, MemberSerialOffsetField })
+            {
+                string serial = ReadTableString(buffer, length, field);
 
-            return !string.IsNullOrWhiteSpace(serial);
+                if (!string.IsNullOrWhiteSpace(serial) && !serials.Contains(serial))
+                {
+                    serials.Add(serial);
+                }
+            }
+
+            return serials.Count > 0;
         }
 
         /// <summary>
@@ -633,6 +657,41 @@ namespace DiskInfoToolkit.Core
             }
 
             return Encoding.Unicode.GetString(buffer, offset, length * 2).Trim();
+        }
+
+        /// <summary>
+        /// Reads a NUL-terminated UTF-16 string located through a disk-information offset field.
+        /// </summary>
+        /// <param name="buffer">The validated response.</param>
+        /// <param name="length">The number of bytes actually returned by DeviceIoControl.</param>
+        /// <param name="field">The offset of the DWORD holding the string's byte offset.</param>
+        /// <returns>The string, or empty when absent, out of range or not terminated.</returns>
+        private static string ReadTableString(byte[] buffer, int length, int field)
+        {
+            uint offset = BitConverter.ToUInt32(buffer, field);
+            uint end    = Math.Min((uint)length, BitConverter.ToUInt32(buffer, 4));
+
+            // Strings follow the offset table. Zero marks an absent string.
+            if (offset < MemberStringTableEnd || offset >= end || offset % sizeof(char) != 0)
+            {
+                return string.Empty;
+            }
+
+            int maxCharacters = (int)(end - offset) / sizeof(char);
+            int characters    = 0;
+
+            while (characters < maxCharacters && BitConverter.ToUInt16(buffer, (int)offset + characters * sizeof(char)) != 0)
+            {
+                ++characters;
+            }
+
+            // Reject text that runs to the end of the response without a terminator.
+            if (characters == maxCharacters)
+            {
+                return string.Empty;
+            }
+
+            return Encoding.Unicode.GetString(buffer, (int)offset, characters * sizeof(char)).Trim();
         }
 
         /// <summary>
