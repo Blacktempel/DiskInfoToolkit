@@ -78,7 +78,10 @@ namespace DiskInfoToolkit
         public ulong? AllocatedBytes { get; }
 
         /// <summary>
-        /// Gets the physical bytes consumed in the pool, including redundancy.
+        /// Gets the physical bytes consumed in the pool by this space's data slabs, including redundancy.
+        /// This excludes the space's write-back cache and journal, so it is lower than the
+        /// FootprintOnPool value Windows reports (by 512 MiB for a two-way mirror without a
+        /// write-back cache). The pool's <see cref="StoragePool.AllocatedBytes"/> includes them.
         /// </summary>
         public ulong? FootprintOnPoolBytes { get; }
 
