@@ -289,6 +289,48 @@ namespace DiskInfoToolkit.Tests.Core
         }
 
         /// <summary>
+        /// Keeps a large space whose extent array did not fit, without reporting partial extents.
+        /// </summary>
+        [TestMethod]
+        public void ParsesFixedFieldsOfTruncatedSpaceInformation()
+        {
+            // Shape observed for a 20 TB thin space: about 123,500 extents need about 17.8 MB,
+            // and a 64 KB buffer returns 0xFFF8 bytes with ERROR_MORE_DATA.
+            var poolID = Guid.NewGuid();
+            var spaceID = Guid.NewGuid();
+            var bytes = new byte[0xFFF8];
+
+            PutUInt32(bytes, 0, 0xBD8);
+            PutUInt32(bytes, 4, 0x1100000);
+            PutGuid(bytes, 8, poolID);
+            PutGuid(bytes, 0x18, spaceID);
+            PutText(bytes, 0x28, "Data");
+            PutUInt64(bytes, 0xA68, 20000000000000);
+            PutUInt64(bytes, 0xA70, 16000000000000);
+            PutUInt64(bytes, 0xA78, 32000000000000);
+            PutUInt32(bytes, 0xB30, 123500);
+            PutGuid(bytes, 0xB48 + 0x64, Guid.NewGuid());
+
+            // Without the driver's ERROR_MORE_DATA the declared size does not fit and is rejected.
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out _));
+
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, true, out var space));
+            Assert.AreEqual("Data", space.Name);
+            Assert.AreEqual((ulong)20000000000000, space.SizeBytes);
+            Assert.AreEqual((ulong)16000000000000, space.AllocatedBytes);
+            Assert.AreEqual((ulong)32000000000000, space.FootprintOnPoolBytes);
+            Assert.IsFalse(space.ExtentInformationAvailable);
+            Assert.AreEqual(0, space.ExtentDiskIDs.Count);
+
+            // A truncated response must still hold the complete fixed structure.
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, 0xBD7, poolID, spaceID, true, out _));
+
+            // A response that did fit is not treated as truncated.
+            PutUInt32(bytes, 4, 0xFFF8);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, true, out _));
+        }
+
+        /// <summary>
         /// Accepts only a running repair task with the observed type and consistent byte counters.
         /// </summary>
         [TestMethod]
