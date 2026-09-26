@@ -35,6 +35,8 @@ namespace DiskInfoToolkit.Core
         private const uint GetTasksIoctl        = 0xE70C04;
         private const uint GetTaskInfoIoctl     = 0xE70C08;
 
+        private const int ErrorMoreData         = 234;
+
         private const int ListBufferSize        = 65536;
         private const int InfoBufferSize        = 8192;
         private const int SpaceInfoBufferSize   = 65536;
@@ -63,12 +65,17 @@ namespace DiskInfoToolkit.Core
         private const int PoolConfiguredMembersOffset = 0xA50;
         private const int PoolInfoMinSize             = PoolConfiguredMembersOffset + sizeof(uint);
 
-        // Fixed fields in SpIoctlGetDiskInfo output.
-        private const int  MemberPoolIDOffset     = 0x08;
-        private const int  MemberIDOffset         = 0x18;
-        private const int  MemberSerialOffset     = 0xBFC;
-        private const int  MemberSerialCharacters = 16;
-        private const int  DiskInfoMinSize        = MemberSerialOffset + MemberSerialCharacters * sizeof(char);
+        // Fixed fields in SpIoctlGetDiskInfo output. Identity strings are packed, NUL-terminated
+        // UTF-16 text after the fixed fields, so their positions depend on the lengths of the
+        // strings before them. A table of byte offsets locates each one; zero means absent.
+        // 0xA30 vendor, 0xA34 product, 0xA38 firmware, 0xA3C serial, 0xA40 raw serial,
+        // 0xA44 trimmed serial (seen on NVMe only), 0xA7C location, 0xA80 PnP device ID.
+        private const int  MemberPoolIDOffset           = 0x08;
+        private const int  MemberIDOffset               = 0x18;
+        private const int  MemberSerialOffsetField      = 0xA3C;
+        private const int  MemberShortSerialOffsetField = 0xA44;
+        private const int  MemberStringTableEnd         = 0xA88;
+        private const int  DiskInfoMinSize              = MemberStringTableEnd;
         private const uint PoolInfoStructureSize  = 0xB10;
         private const uint DiskInfoStructureSize  = 0xC30;
 
@@ -80,6 +87,9 @@ namespace DiskInfoToolkit.Core
         private const int  SpaceNameCharacters        = 256;
         private const int  SpaceDescriptionOffset     = 0x228;
         private const int  SpaceDescriptionCharacters = 1024;
+        private const int  SpaceHealthOffset          = 0xA34;
+        private const int  SpaceStatusOffset          = 0xA38;
+        private const int  SpaceStatusEnd             = 0xA60;
         private const int  SpaceSizeOffset            = 0xA68;
         private const int  SpaceAllocatedOffset       = 0xA70;
         private const int  SpaceFootprintOffset       = 0xA78;
@@ -184,13 +194,23 @@ namespace DiskInfoToolkit.Core
                             var diskInfo = new byte[InfoBufferSize];
 
                             if (!ioControl.SendRawIoControl(handle, GetPoolDiskInfoIoctl, diskInfoInput, diskInfo, out int diskInfoLength)
-                             || !TryParseDiskSerial(diskInfo, diskInfoLength, poolID, memberID, out string serial))
+                             || !TryParseDiskSerials(diskInfo, diskInfoLength, poolID, memberID, out var serials))
                             {
                                 continue;
                             }
 
-                            // Find the first disk with a matching serial number.
-                            var match = FindUniqueDiskBySerial(disks, serial);
+                            // Use the first serial that identifies exactly one disk.
+                            StorageDevice match = null;
+
+                            foreach (var serial in serials)
+                            {
+                                match = FindUniqueDiskBySerial(disks, serial);
+
+                                if (match != null)
+                                {
+                                    break;
+                                }
+                            }
 
                             if (match != null)
                             {
@@ -225,23 +245,34 @@ namespace DiskInfoToolkit.Core
                             // than the pool and member information buffers use.
                             var spaceInfo = new byte[SpaceInfoBufferSize];
 
-                            if (ioControl.SendRawIoControl(handle, GetSpaceInfoIoctl, spaceInput, spaceInfo, out int spaceInfoLength)
-                             && TryParseSpaceInfo(spaceInfo, spaceInfoLength, poolID, spaceID, out var space))
+                            bool received = ioControl.SendRawIoControl(handle, GetSpaceInfoIoctl, spaceInput, spaceInfo, out int spaceInfoLength);
+
+                            // The response carries one extent record per slab, so a large space
+                            // does not fit (a 20 TB space needed 17.8 MB). The driver still fills
+                            // the fixed fields before reporting ERROR_MORE_DATA, so parse those and
+                            // leave the extent list unavailable rather than dropping the space.
+                            bool truncated = !received && IsMoreDataError(ioControl);
+
+                            if ((received || truncated)
+                             && TryParseSpaceInfo(spaceInfo, spaceInfoLength, poolID, spaceID, truncated, out var space))
                             {
-                                var extentDisks = new List<StorageDevice>();
-
-                                foreach (var diskID in space.ExtentDiskIDs)
+                                if (space.ExtentInformationAvailable)
                                 {
-                                    // A space's extent GUID names a physical pool disk. Resolve it
-                                    // only through the pool's already matched StorageDevice objects.
-                                    if (memberDevicesByID.TryGetValue(diskID, out var disk)
-                                     && !extentDisks.Contains(disk))
-                                    {
-                                        extentDisks.Add(disk);
-                                    }
-                                }
+                                    var extentDisks = new List<StorageDevice>();
 
-                                space.SetExtentDisks(new(space.ExtentDiskIDs), extentDisks);
+                                    foreach (var diskID in space.ExtentDiskIDs)
+                                    {
+                                        // A space's extent GUID names a physical pool disk. Resolve it
+                                        // only through the pool's already matched StorageDevice objects.
+                                        if (memberDevicesByID.TryGetValue(diskID, out var disk)
+                                         && !extentDisks.Contains(disk))
+                                        {
+                                            extentDisks.Add(disk);
+                                        }
+                                    }
+
+                                    space.SetExtentDisks(new(space.ExtentDiskIDs), extentDisks);
+                                }
 
                                 if (TryReadRepairProgress(handle, ioControl, poolID, spaceID, out var repairProgress))
                                 {
@@ -325,7 +356,7 @@ namespace DiskInfoToolkit.Core
 
             // A18 marks the primordial pool, A38/A40 are total/allocated bytes, and A50 is the
             // configured member count. In the controlled unplug/replug test, only A20 and A24
-            // changed (3/3 -> 2/2 -> 3/3); other status pairs remain unmapped.
+            // changed (3/3 -> 2/2 -> 1/1 -> 3/3); other status pairs remain unmapped.
             pool = new StoragePool(
                 expectedID,
                 name,
@@ -339,17 +370,17 @@ namespace DiskInfoToolkit.Core
         }
 
         /// <summary>
-        /// Reads the member serial used to identify an already detected physical disk.
+        /// Reads the member serials used to identify an already detected physical disk.
         /// </summary>
         /// <param name="buffer">The IOCTL output buffer.</param>
         /// <param name="length">The number of bytes actually returned by DeviceIoControl.</param>
         /// <param name="expectedPoolID">The pool identifier used in the request.</param>
         /// <param name="expectedDiskID">The member identifier used in the request.</param>
-        /// <param name="serial">The physical serial when the response is valid.</param>
-        /// <returns>Whether the complete serial field is available.</returns>
-        internal static bool TryParseDiskSerial(byte[] buffer, int length, Guid expectedPoolID, Guid expectedDiskID, out string serial)
+        /// <param name="serials">The candidate serials, most specific first, when the response is valid.</param>
+        /// <returns>Whether at least one complete serial is available.</returns>
+        internal static bool TryParseDiskSerials(byte[] buffer, int length, Guid expectedPoolID, Guid expectedDiskID, out List<string> serials)
         {
-            serial = string.Empty;
+            serials = new();
 
             if (!HasValidInfoResponse(buffer, length, DiskInfoMinSize, DiskInfoStructureSize)
              || ReadGuid(buffer, MemberPoolIDOffset) != expectedPoolID
@@ -358,12 +389,21 @@ namespace DiskInfoToolkit.Core
                 return false;
             }
 
-            // A missing disk still produced a short response during testing. Requiring the
-            // complete field prevents an incomplete record from matching a present disk.
-            // The second 16-WCHAR serial at 0xBFC matches StorageDevice.SerialNumber.
-            serial = ReadUtf16(buffer, MemberSerialOffset, MemberSerialCharacters);
+            // NVMe disks report a trimmed serial at 0xA44 that matches StorageDevice.SerialNumber,
+            // while their 0xA3C serial is the EUI-based one. ATA disks have no 0xA44 string and
+            // their 0xA3C serial matches. A missing disk still produced a short response during
+            // testing, so a string must end inside the response to count.
+            foreach (int field in new[] { MemberShortSerialOffsetField, MemberSerialOffsetField })
+            {
+                string serial = ReadTableString(buffer, length, field);
 
-            return !string.IsNullOrWhiteSpace(serial);
+                if (!string.IsNullOrWhiteSpace(serial) && !serials.Contains(serial))
+                {
+                    serials.Add(serial);
+                }
+            }
+
+            return serials.Count > 0;
         }
 
         /// <summary>
@@ -377,9 +417,29 @@ namespace DiskInfoToolkit.Core
         /// <returns>Whether the response matches the layout and requested identifiers.</returns>
         internal static bool TryParseSpaceInfo(byte[] buffer, int length, Guid expectedPoolID, Guid expectedSpaceID, out StorageSpace space)
         {
+            return TryParseSpaceInfo(buffer, length, expectedPoolID, expectedSpaceID, false, out space);
+        }
+
+        /// <summary>
+        /// Parses a Storage Spaces virtual disk, optionally from a response truncated by ERROR_MORE_DATA.
+        /// </summary>
+        /// <param name="buffer">The IOCTL output buffer.</param>
+        /// <param name="length">The number of bytes actually returned by DeviceIoControl.</param>
+        /// <param name="expectedPoolID">The pool identifier used in the request.</param>
+        /// <param name="expectedSpaceID">The storage space identifier used in the request.</param>
+        /// <param name="truncated">Whether the driver reported that the response did not fit.</param>
+        /// <param name="space">The parsed storage space when the response is valid.</param>
+        /// <returns>Whether the response matches the layout and requested identifiers.</returns>
+        internal static bool TryParseSpaceInfo(byte[] buffer, int length, Guid expectedPoolID, Guid expectedSpaceID,
+            bool truncated, out StorageSpace space)
+        {
             space = null;
 
-            if (!HasValidInfoResponse(buffer, length, SpaceInfoMinSize, SpaceInfoStructureSize)
+            bool valid = truncated
+                ? HasTruncatedInfoResponse(buffer, length, SpaceInfoMinSize, SpaceInfoStructureSize)
+                : HasValidInfoResponse    (buffer, length, SpaceInfoMinSize, SpaceInfoStructureSize);
+
+            if (!valid
              || ReadGuid(buffer, SpacePoolIDOffset) != expectedPoolID
              || ReadGuid(buffer, SpaceIDOffset) != expectedSpaceID)
             {
@@ -390,24 +450,30 @@ namespace DiskInfoToolkit.Core
             // SDB_EXTENT::GetDrive and copies that SDB_DRIVE's GUID into the 0x90-byte record
             // at record + 0x64. The count is at 0xB30 and the array begins at 0xB48.
             // Validate against the declared response size before reading any extent record.
-            uint count = BitConverter.ToUInt32(buffer, SpaceExtentCountOffset);
+            // A truncated response holds only part of the array, so its extents are not read.
+            List<Guid> extentDiskIDs = null;
 
-            uint responseSize = BitConverter.ToUInt32(buffer, 4);
-
-            if (count > (responseSize - SpaceExtentsOffset) / SpaceExtentSize)
+            if (!truncated)
             {
-                return false;
-            }
+                uint count = BitConverter.ToUInt32(buffer, SpaceExtentCountOffset);
 
-            var extentDiskIDs = new List<Guid>();
+                uint responseSize = BitConverter.ToUInt32(buffer, 4);
 
-            for (int i = 0; i < count; i++)
-            {
-                var diskID = ReadGuid(buffer, SpaceExtentsOffset + i * SpaceExtentSize + SpaceExtentDiskIDOffset);
-
-                if (diskID != Guid.Empty && !extentDiskIDs.Contains(diskID))
+                if (count > (responseSize - SpaceExtentsOffset) / SpaceExtentSize)
                 {
-                    extentDiskIDs.Add(diskID);
+                    return false;
+                }
+
+                extentDiskIDs = new List<Guid>();
+
+                for (int i = 0; i < count; i++)
+                {
+                    var diskID = ReadGuid(buffer, SpaceExtentsOffset + i * SpaceExtentSize + SpaceExtentDiskIDOffset);
+
+                    if (diskID != Guid.Empty && !extentDiskIDs.Contains(diskID))
+                    {
+                        extentDiskIDs.Add(diskID);
+                    }
                 }
             }
 
@@ -427,7 +493,30 @@ namespace DiskInfoToolkit.Core
                 BitConverter.ToUInt64(buffer, SpaceAllocatedOffset),
                 BitConverter.ToUInt64(buffer, SpaceFootprintOffset));
 
-            space.SetExtentDisks(extentDiskIDs, new List<StorageDevice>());
+            // 0xA34 is the space's own health (3 Healthy, 2 Warning, 1 Unhealthy). From 0xA38 a
+            // zero-terminated array of operational status codes follows, most significant first,
+            // matching WMI's OperationalStatus (e.g. 3 Degraded, 4 Incomplete, 5 InService).
+            // Both sit in the fixed structure, so a truncated response still carries them.
+            var operationalStatus = new List<uint>();
+
+            for (int offset = SpaceStatusOffset; offset < SpaceStatusEnd; offset += sizeof(uint))
+            {
+                uint value = BitConverter.ToUInt32(buffer, offset);
+
+                if (value == 0)
+                {
+                    break;
+                }
+
+                operationalStatus.Add(value);
+            }
+
+            space.SetStatus(BitConverter.ToUInt32(buffer, SpaceHealthOffset), operationalStatus);
+
+            if (extentDiskIDs != null)
+            {
+                space.SetExtentDisks(extentDiskIDs, new List<StorageDevice>());
+            }
 
             return true;
         }
@@ -603,6 +692,32 @@ namespace DiskInfoToolkit.Core
         }
 
         /// <summary>
+        /// Validates a response the driver cut short with ERROR_MORE_DATA. The fixed structure
+        /// must be complete, and the declared size must exceed what was returned.
+        /// </summary>
+        /// <param name="buffer">The IOCTL output buffer.</param>
+        /// <param name="length">The number of bytes actually returned by DeviceIoControl.</param>
+        /// <param name="minimumLength">The final byte required by fields this reader uses.</param>
+        /// <param name="structureSize">The expected first DWORD for this response type.</param>
+        /// <returns>Whether the fixed fields can be parsed using the observed offsets.</returns>
+        private static bool HasTruncatedInfoResponse(byte[] buffer, int length, int minimumLength, uint structureSize)
+        {
+            return buffer != null && length >= minimumLength && length >= structureSize && length <= buffer.Length
+                && BitConverter.ToUInt32(buffer, 0) == structureSize
+                && BitConverter.ToUInt32(buffer, 4) > length;
+        }
+
+        /// <summary>
+        /// Checks whether the last IOCTL failed only because its output buffer was too small.
+        /// </summary>
+        /// <param name="ioControl">The platform IOCTL implementation.</param>
+        /// <returns>Whether the last Windows error was ERROR_MORE_DATA.</returns>
+        private static bool IsMoreDataError(IStorageIoControl ioControl)
+        {
+            return ioControl is WindowsStorageIoControl windowsIo && windowsIo.LastIoControlError == ErrorMoreData;
+        }
+
+        /// <summary>
         /// Reads a Windows-layout GUID from a validated buffer range.
         /// </summary>
         /// <param name="buffer">The response containing the GUID.</param>
@@ -633,6 +748,41 @@ namespace DiskInfoToolkit.Core
             }
 
             return Encoding.Unicode.GetString(buffer, offset, length * 2).Trim();
+        }
+
+        /// <summary>
+        /// Reads a NUL-terminated UTF-16 string located through a disk-information offset field.
+        /// </summary>
+        /// <param name="buffer">The validated response.</param>
+        /// <param name="length">The number of bytes actually returned by DeviceIoControl.</param>
+        /// <param name="field">The offset of the DWORD holding the string's byte offset.</param>
+        /// <returns>The string, or empty when absent, out of range or not terminated.</returns>
+        private static string ReadTableString(byte[] buffer, int length, int field)
+        {
+            uint offset = BitConverter.ToUInt32(buffer, field);
+            uint end    = Math.Min((uint)length, BitConverter.ToUInt32(buffer, 4));
+
+            // Strings follow the offset table. Zero marks an absent string.
+            if (offset < MemberStringTableEnd || offset >= end || offset % sizeof(char) != 0)
+            {
+                return string.Empty;
+            }
+
+            int maxCharacters = (int)(end - offset) / sizeof(char);
+            int characters    = 0;
+
+            while (characters < maxCharacters && BitConverter.ToUInt16(buffer, (int)offset + characters * sizeof(char)) != 0)
+            {
+                ++characters;
+            }
+
+            // Reject text that runs to the end of the response without a terminator.
+            if (characters == maxCharacters)
+            {
+                return string.Empty;
+            }
+
+            return Encoding.Unicode.GetString(buffer, (int)offset, characters * sizeof(char)).Trim();
         }
 
         /// <summary>

@@ -112,6 +112,13 @@ namespace DiskInfoToolkit
                     return StoragePoolHealthStatus.Warning;
                 }
 
+                // Seen with two or three of four disks removed from a two-way mirror pool,
+                // while Windows reported the pool as Unhealthy / Read-only.
+                if (RawStatusA20 == 1 && RawStatusA24 == 1)
+                {
+                    return StoragePoolHealthStatus.Unhealthy;
+                }
+
                 return StoragePoolHealthStatus.Unknown;
             }
         }

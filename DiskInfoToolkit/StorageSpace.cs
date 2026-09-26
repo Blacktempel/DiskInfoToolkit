@@ -39,6 +39,8 @@ namespace DiskInfoToolkit
             FootprintOnPoolBytes = footprintOnPoolBytes;
             ExtentDiskIDs        = new ReadOnlyCollection<Guid>(new List<Guid>());
             ExtentDisks          = new ReadOnlyCollection<StorageDevice>(new List<StorageDevice>());
+            OperationalStatus    = new ReadOnlyCollection<StorageSpaceOperationalStatus>(new List<StorageSpaceOperationalStatus>());
+            RawOperationalStatus = new ReadOnlyCollection<uint>(new List<uint>());
         }
 
         #endregion
@@ -76,7 +78,10 @@ namespace DiskInfoToolkit
         public ulong? AllocatedBytes { get; }
 
         /// <summary>
-        /// Gets the physical bytes consumed in the pool, including redundancy.
+        /// Gets the physical bytes consumed in the pool by this space's data slabs, including redundancy.
+        /// This excludes the space's write-back cache and journal, so it is lower than the
+        /// FootprintOnPool value Windows reports (by 512 MiB for a two-way mirror without a
+        /// write-back cache). The pool's <see cref="StoragePool.AllocatedBytes"/> includes them.
         /// </summary>
         public ulong? FootprintOnPoolBytes { get; }
 
@@ -137,6 +142,42 @@ namespace DiskInfoToolkit
         /// </summary>
         public StorageRepairProgress RepairProgress { get; private set; }
 
+        /// <summary>
+        /// Space health for verified Spaceport values. Other values remain unknown.
+        /// A space can be degraded while its pool reports healthy, for example while a repair
+        /// is pending after a lost disk has returned.
+        /// </summary>
+        public StoragePoolHealthStatus HealthStatus
+        {
+            get
+            {
+                // Same scale as the pool status pair, verified against WMI across healthy,
+                // degraded, repairing and detached spaces.
+                switch (RawHealthStatus)
+                {
+                    case 3:
+                        return StoragePoolHealthStatus.Healthy;
+                    case 2:
+                        return StoragePoolHealthStatus.Warning;
+                    case 1:
+                        return StoragePoolHealthStatus.Unhealthy;
+                    default:
+                        return StoragePoolHealthStatus.Unknown;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the operational statuses reported by Spaceport, most significant first, in the
+        /// same order Windows reports them (for example Degraded, Incomplete, InService).
+        /// Empty when no status was read.
+        /// </summary>
+        public IReadOnlyList<StorageSpaceOperationalStatus> OperationalStatus { get; private set; }
+
+        internal uint RawHealthStatus { get; private set; }
+
+        internal IReadOnlyList<uint> RawOperationalStatus { get; private set; }
+
         #endregion
 
         #region Internal
@@ -181,6 +222,47 @@ namespace DiskInfoToolkit
         internal void SetRepairProgress(StorageRepairProgress progress)
         {
             RepairProgress = progress;
+        }
+
+        /// <summary>
+        /// Stores the raw health and operational status values read from Spaceport.
+        /// </summary>
+        /// <param name="health">The raw health value.</param>
+        /// <param name="operationalStatus">The raw operational status values, most significant first.</param>
+        internal void SetStatus(uint health, List<uint> operationalStatus)
+        {
+            RawHealthStatus      = health;
+            RawOperationalStatus = new ReadOnlyCollection<uint>(new List<uint>(operationalStatus));
+            OperationalStatus    = new ReadOnlyCollection<StorageSpaceOperationalStatus>(
+                operationalStatus.Select(ToOperationalStatus).ToList());
+        }
+
+        #endregion
+
+        #region Private
+
+        /// <summary>
+        /// Maps a verified Spaceport operational status code. Other codes remain unknown.
+        /// </summary>
+        /// <param name="value">The raw status code.</param>
+        /// <returns>The operational status.</returns>
+        private static StorageSpaceOperationalStatus ToOperationalStatus(uint value)
+        {
+            switch (value)
+            {
+                case 7:
+                    return StorageSpaceOperationalStatus.OK;
+                case 5:
+                    return StorageSpaceOperationalStatus.InService;
+                case 4:
+                    return StorageSpaceOperationalStatus.Incomplete;
+                case 3:
+                    return StorageSpaceOperationalStatus.Degraded;
+                case 1:
+                    return StorageSpaceOperationalStatus.Detached;
+                default:
+                    return StorageSpaceOperationalStatus.Unknown;
+            }
         }
 
         #endregion

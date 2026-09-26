@@ -84,6 +84,30 @@ namespace DiskInfoToolkit.Tests.Core
         }
 
         /// <summary>
+        /// Maps the pair seen when a mirror pool lost more disks than it can tolerate.
+        /// </summary>
+        [TestMethod]
+        public void MapsUnhealthyPair()
+        {
+            var ID = Guid.NewGuid();
+            var bytes = new byte[0xBA8];
+
+            PutUInt32(bytes, 0, 0xB10);
+            PutUInt32(bytes, 4, (uint)bytes.Length);
+            PutGuid(bytes, 8, ID);
+            PutText(bytes, 0x18, "Test Pool");
+            PutUInt32(bytes, 0xA20, 1);
+            PutUInt32(bytes, 0xA24, 1);
+
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParsePoolInfo(bytes, bytes.Length, ID, out var pool));
+            Assert.AreEqual(StoragePoolHealthStatus.Unhealthy, pool.HealthStatus);
+
+            PutUInt32(bytes, 0xA24, 2);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParsePoolInfo(bytes, bytes.Length, ID, out pool));
+            Assert.AreEqual(StoragePoolHealthStatus.Unknown, pool.HealthStatus);
+        }
+
+        /// <summary>
         /// Rejects responses that cannot safely be decoded using the observed offsets.
         /// </summary>
         [TestMethod]
@@ -123,24 +147,73 @@ namespace DiskInfoToolkit.Tests.Core
         }
 
         /// <summary>
-        /// Reads the complete fixed-width serial and rejects a different member identifier.
+        /// Locates an ATA serial through the offset table, wherever the packed strings place it.
         /// </summary>
         [TestMethod]
-        public void ReadsFixedLengthSerialFromDriverDiskInformation()
+        public void ReadsAtaSerialThroughOffsetTable()
+        {
+            // Shape observed on a SATA member: a 3-character vendor moves the serial to 0xBD4.
+            var poolID = Guid.NewGuid();
+            var diskID = Guid.NewGuid();
+            var bytes = CreateDiskInfo(poolID, diskID, 0xD30,
+                (0xA30, 0xBA0, "ATA"),
+                (0xA34, 0xBA8, "WDC WD40EFZX-68A"),
+                (0xA38, 0xBCA, "0B81"),
+                (0xA3C, 0xBD4, "WD-WX00000000AB"),
+                (0xA7C, 0xBF4, "Integrated : Bus 13 : Device 0 : Function 0 : Adapter 0 : Port 0 : Target 10 : LUN 0"));
+
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out var serials));
+            CollectionAssert.AreEqual(new[] { "WD-WX00000000AB" }, serials);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, Guid.NewGuid(), out _));
+        }
+
+        /// <summary>
+        /// Prefers the trimmed NVMe serial over the EUI-based one and keeps both as candidates.
+        /// </summary>
+        [TestMethod]
+        public void PrefersTrimmedNvmeSerial()
         {
             var poolID = Guid.NewGuid();
             var diskID = Guid.NewGuid();
-            var bytes = new byte[0xD30];
+            var bytes = CreateDiskInfo(poolID, diskID, 0xD98,
+                (0xA34, 0xBA0, "WD_BLACK SN770 1TB"),
+                (0xA38, 0xBC6, "731100WD"),
+                (0xA3C, 0xBD8, "0000_0000_0000_0001_0000_0000_0000_0000."),
+                (0xA40, 0xC2A, "0000AB000000        _0000"),
+                (0xA44, 0xC5E, "0000AB000000"));
 
-            PutUInt32(bytes, 0, 0xC30);
-            PutUInt32(bytes, 4, (uint)bytes.Length);
-            PutGuid(bytes, 8, poolID);
-            PutGuid(bytes, 24, diskID);
-            PutText(bytes, 0xBFC, "SOME-SERIAL-0001");
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out var serials));
+            CollectionAssert.AreEqual(new[] { "0000AB000000", "0000_0000_0000_0001_0000_0000_0000_0000." }, serials);
 
-            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseDiskSerial(bytes, bytes.Length, poolID, diskID, out var serial));
-            Assert.AreEqual("SOME-SERIAL-0001", serial);
-            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerial(bytes, bytes.Length, poolID, Guid.NewGuid(), out _));
+            var nvme = new StorageDevice { SerialNumber = "0000AB000000" };
+            Assert.AreSame(nvme, WindowsStorageSpacesPoolReader.FindUniqueDiskBySerial(new[] { nvme }, serials[0]));
+        }
+
+        /// <summary>
+        /// Ignores serial offsets that are absent, outside the response or unterminated.
+        /// </summary>
+        [TestMethod]
+        public void RejectsSerialOutsideResponse()
+        {
+            var poolID = Guid.NewGuid();
+            var diskID = Guid.NewGuid();
+
+            // No serial offsets at all, as seen on virtual disks.
+            var bytes = CreateDiskInfo(poolID, diskID, 0xCDC, (0xA30, 0xBA0, "Msft"));
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out _));
+
+            // Offset beyond the returned length.
+            bytes = CreateDiskInfo(poolID, diskID, 0xCDC, (0xA3C, 0xBD4, "WD-WX00000000AB"));
+            PutUInt32(bytes, 0xA3C, 0xCDC);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out _));
+
+            // Offset pointing into the fixed fields.
+            PutUInt32(bytes, 0xA3C, 0x18);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out _));
+
+            // Text that reaches the end of the response without a terminator.
+            bytes = CreateDiskInfo(poolID, diskID, 0xC30, (0xA3C, 0xC20, "12345678"));
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseDiskSerials(bytes, bytes.Length, poolID, diskID, out _));
         }
 
         /// <summary>
@@ -237,6 +310,94 @@ namespace DiskInfoToolkit.Tests.Core
             // The declared count must fit in the actual response, even when a large buffer exists.
             PutUInt32(bytes, 0xB30, 5);
             Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out _));
+        }
+
+        /// <summary>
+        /// Reads the space's own health and its operational status array, in Windows' order.
+        /// </summary>
+        [TestMethod]
+        public void ParsesSpaceHealthAndOperationalStatus()
+        {
+            var poolID = Guid.NewGuid();
+            var spaceID = Guid.NewGuid();
+
+            // Degraded with a lost disk: Warning, then Degraded, Incomplete, InService.
+            var bytes = CreateSpaceInfo(poolID, spaceID, 2, 3, 4, 5);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out var space));
+            Assert.AreEqual(StoragePoolHealthStatus.Warning, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Degraded, StorageSpaceOperationalStatus.Incomplete,
+                StorageSpaceOperationalStatus.InService }, space.OperationalStatus.ToArray());
+
+            bytes = CreateSpaceInfo(poolID, spaceID, 3, 7);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
+            Assert.AreEqual(StoragePoolHealthStatus.Healthy, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.OK }, space.OperationalStatus.ToArray());
+
+            bytes = CreateSpaceInfo(poolID, spaceID, 1, 1);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
+            Assert.AreEqual(StoragePoolHealthStatus.Unhealthy, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Detached }, space.OperationalStatus.ToArray());
+
+            // Unverified codes stay unknown rather than being guessed.
+            bytes = CreateSpaceInfo(poolID, spaceID, 9, 9);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
+            Assert.AreEqual(StoragePoolHealthStatus.Unknown, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Unknown }, space.OperationalStatus.ToArray());
+
+            // The status array ends before the value that always follows it at 0xA60.
+            bytes = CreateSpaceInfo(poolID, spaceID, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3);
+            PutUInt32(bytes, 0xA60, 5);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
+            Assert.AreEqual(10, space.OperationalStatus.Count);
+
+            // A truncated response carries the same fixed fields.
+            bytes = CreateSpaceInfo(poolID, spaceID, 2, 3);
+            PutUInt32(bytes, 4, 0x1100000);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, true, out space));
+            Assert.AreEqual(StoragePoolHealthStatus.Warning, space.HealthStatus);
+            CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Degraded }, space.OperationalStatus.ToArray());
+        }
+
+        /// <summary>
+        /// Keeps a large space whose extent array did not fit, without reporting partial extents.
+        /// </summary>
+        [TestMethod]
+        public void ParsesFixedFieldsOfTruncatedSpaceInformation()
+        {
+            // Shape observed for a 20 TB thin space: about 123,500 extents need about 17.8 MB,
+            // and a 64 KB buffer returns 0xFFF8 bytes with ERROR_MORE_DATA.
+            var poolID = Guid.NewGuid();
+            var spaceID = Guid.NewGuid();
+            var bytes = new byte[0xFFF8];
+
+            PutUInt32(bytes, 0, 0xBD8);
+            PutUInt32(bytes, 4, 0x1100000);
+            PutGuid(bytes, 8, poolID);
+            PutGuid(bytes, 0x18, spaceID);
+            PutText(bytes, 0x28, "Data");
+            PutUInt64(bytes, 0xA68, 20000000000000);
+            PutUInt64(bytes, 0xA70, 16000000000000);
+            PutUInt64(bytes, 0xA78, 32000000000000);
+            PutUInt32(bytes, 0xB30, 123500);
+            PutGuid(bytes, 0xB48 + 0x64, Guid.NewGuid());
+
+            // Without the driver's ERROR_MORE_DATA the declared size does not fit and is rejected.
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out _));
+
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, true, out var space));
+            Assert.AreEqual("Data", space.Name);
+            Assert.AreEqual((ulong)20000000000000, space.SizeBytes);
+            Assert.AreEqual((ulong)16000000000000, space.AllocatedBytes);
+            Assert.AreEqual((ulong)32000000000000, space.FootprintOnPoolBytes);
+            Assert.IsFalse(space.ExtentInformationAvailable);
+            Assert.AreEqual(0, space.ExtentDiskIDs.Count);
+
+            // A truncated response must still hold the complete fixed structure.
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, 0xBD7, poolID, spaceID, true, out _));
+
+            // A response that did fit is not treated as truncated.
+            PutUInt32(bytes, 4, 0xFFF8);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, true, out _));
         }
 
         /// <summary>
@@ -338,6 +499,59 @@ namespace DiskInfoToolkit.Tests.Core
         /// <param name="offset">The field offset.</param>
         /// <param name="value">The text to write.</param>
         private static void PutText(byte[] bytes, int offset, string value) => Encoding.Unicode.GetBytes(value).CopyTo(bytes, offset);
+
+        /// <summary>
+        /// Builds a synthetic space-information response with health and operational status.
+        /// </summary>
+        /// <param name="poolID">The pool identifier.</param>
+        /// <param name="spaceID">The storage space identifier.</param>
+        /// <param name="health">The raw health value.</param>
+        /// <param name="operationalStatus">The raw operational status values.</param>
+        /// <returns>The response buffer.</returns>
+        private static byte[] CreateSpaceInfo(Guid poolID, Guid spaceID, uint health, params uint[] operationalStatus)
+        {
+            var bytes = new byte[0xBD8];
+
+            PutUInt32(bytes, 0, 0xBD8);
+            PutUInt32(bytes, 4, (uint)bytes.Length);
+            PutGuid(bytes, 8, poolID);
+            PutGuid(bytes, 0x18, spaceID);
+            PutText(bytes, 0x28, "Test Space");
+            PutUInt32(bytes, 0xA34, health);
+
+            for (int i = 0; i < operationalStatus.Length; ++i)
+            {
+                PutUInt32(bytes, 0xA38 + i * 4, operationalStatus[i]);
+            }
+
+            return bytes;
+        }
+
+        /// <summary>
+        /// Builds a synthetic disk-information response with packed strings and their offset fields.
+        /// </summary>
+        /// <param name="poolID">The pool identifier.</param>
+        /// <param name="diskID">The member identifier.</param>
+        /// <param name="length">The response length.</param>
+        /// <param name="strings">Each offset field, the string's offset and its text.</param>
+        /// <returns>The response buffer.</returns>
+        private static byte[] CreateDiskInfo(Guid poolID, Guid diskID, int length, params (int Field, int Offset, string Text)[] strings)
+        {
+            var bytes = new byte[length];
+
+            PutUInt32(bytes, 0, 0xC30);
+            PutUInt32(bytes, 4, (uint)length);
+            PutGuid(bytes, 8, poolID);
+            PutGuid(bytes, 24, diskID);
+
+            foreach (var (field, offset, text) in strings)
+            {
+                PutUInt32(bytes, field, (uint)offset);
+                PutText(bytes, offset, text);
+            }
+
+            return bytes;
+        }
 
         #endregion
     }
