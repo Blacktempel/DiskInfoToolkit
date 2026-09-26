@@ -31,7 +31,7 @@ namespace DiskInfoToolkit
         Warning,
 
         /// <summary>
-        /// The pool is unhealthy. No Spaceport code has been verified for this state yet.
+        /// The pool is unhealthy, for example read-only after losing more disks than it can tolerate.
         /// </summary>
         Unhealthy
 

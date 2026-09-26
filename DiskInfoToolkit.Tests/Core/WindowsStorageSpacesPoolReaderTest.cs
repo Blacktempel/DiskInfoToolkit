@@ -84,6 +84,30 @@ namespace DiskInfoToolkit.Tests.Core
         }
 
         /// <summary>
+        /// Maps the pair seen when a mirror pool lost more disks than it can tolerate.
+        /// </summary>
+        [TestMethod]
+        public void MapsUnhealthyPair()
+        {
+            var ID = Guid.NewGuid();
+            var bytes = new byte[0xBA8];
+
+            PutUInt32(bytes, 0, 0xB10);
+            PutUInt32(bytes, 4, (uint)bytes.Length);
+            PutGuid(bytes, 8, ID);
+            PutText(bytes, 0x18, "Test Pool");
+            PutUInt32(bytes, 0xA20, 1);
+            PutUInt32(bytes, 0xA24, 1);
+
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParsePoolInfo(bytes, bytes.Length, ID, out var pool));
+            Assert.AreEqual(StoragePoolHealthStatus.Unhealthy, pool.HealthStatus);
+
+            PutUInt32(bytes, 0xA24, 2);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParsePoolInfo(bytes, bytes.Length, ID, out pool));
+            Assert.AreEqual(StoragePoolHealthStatus.Unknown, pool.HealthStatus);
+        }
+
+        /// <summary>
         /// Rejects responses that cannot safely be decoded using the observed offsets.
         /// </summary>
         [TestMethod]

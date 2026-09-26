@@ -353,7 +353,7 @@ namespace DiskInfoToolkit.Core
 
             // A18 marks the primordial pool, A38/A40 are total/allocated bytes, and A50 is the
             // configured member count. In the controlled unplug/replug test, only A20 and A24
-            // changed (3/3 -> 2/2 -> 3/3); other status pairs remain unmapped.
+            // changed (3/3 -> 2/2 -> 1/1 -> 3/3); other status pairs remain unmapped.
             pool = new StoragePool(
                 expectedID,
                 name,
