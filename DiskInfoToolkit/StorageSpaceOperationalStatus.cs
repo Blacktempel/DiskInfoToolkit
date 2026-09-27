@@ -2,13 +2,15 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * Copyright (c) 2026 Florian K.
  */
 
 namespace DiskInfoToolkit
 {
     /// <summary>
     /// An operational status of a Microsoft Storage Spaces virtual disk (storage space).
-    /// A space can report several at once, such as Degraded and Incomplete.
+    /// A space can report several at once, such as <see cref="Degraded"/> and <see cref="Incomplete"/>.
     /// </summary>
     public enum StorageSpaceOperationalStatus
     {
@@ -25,7 +27,8 @@ namespace DiskInfoToolkit
         OK,
 
         /// <summary>
-        /// The space is being repaired or regenerated.
+        /// The space is being configured, maintained, cleaned or otherwise serviced.
+        /// This can include repair.
         /// </summary>
         InService,
 
@@ -35,12 +38,14 @@ namespace DiskInfoToolkit
         Degraded,
 
         /// <summary>
-        /// The space is not accessible, for example after losing more disks than it can tolerate.
+        /// The space is visible to Windows but is not attached as a disk device.
+        /// This can be caused by policy or unavailable member disks.
         /// </summary>
         Detached,
 
         /// <summary>
-        /// Some of the space's data is missing a copy until a repair completes.
+        /// The space does not currently have enough redundancy to repair or regenerate
+        /// all data. Missing member disks may need to return.
         /// </summary>
         Incomplete
 

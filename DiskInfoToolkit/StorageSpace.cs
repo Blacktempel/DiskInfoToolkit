@@ -37,8 +37,6 @@ namespace DiskInfoToolkit
             SizeBytes            = sizeBytes;
             AllocatedBytes       = allocatedBytes;
             FootprintOnPoolBytes = footprintOnPoolBytes;
-            ExtentDiskIDs        = new ReadOnlyCollection<Guid>(new List<Guid>());
-            ExtentDisks          = new ReadOnlyCollection<StorageDevice>(new List<StorageDevice>());
             OperationalStatus    = new ReadOnlyCollection<StorageSpaceOperationalStatus>(new List<StorageSpaceOperationalStatus>());
             RawOperationalStatus = new ReadOnlyCollection<uint>(new List<uint>());
         }
@@ -120,23 +118,6 @@ namespace DiskInfoToolkit
         public int MountedVolumeCount { get; private set; }
 
         /// <summary>
-        /// Gets the distinct physical disk identifiers found in this space's allocation extents.
-        /// A pool member with no extent in this space is absent from this list.
-        /// </summary>
-        public IReadOnlyList<Guid> ExtentDiskIDs { get; private set; }
-
-        /// <summary>
-        /// Gets references to already detected disks that could be matched to the extent disk identifiers.
-        /// An unresolved or disconnected disk has no object in this list.
-        /// </summary>
-        public IReadOnlyList<StorageDevice> ExtentDisks { get; private set; }
-
-        /// <summary>
-        /// Gets a value indicating whether this space's extent disk identifiers were read from Spaceport.
-        /// </summary>
-        public bool ExtentInformationAvailable { get; private set; }
-
-        /// <summary>
         /// Gets the active repair task's byte counters and calculated progress or null when
         /// Spaceport reports no running repair task.
         /// </summary>
@@ -147,7 +128,7 @@ namespace DiskInfoToolkit
         /// A space can be degraded while its pool reports healthy, for example while a repair
         /// is pending after a lost disk has returned.
         /// </summary>
-        public StoragePoolHealthStatus HealthStatus
+        public StorageSpacesHealthStatus HealthStatus
         {
             get
             {
@@ -156,13 +137,13 @@ namespace DiskInfoToolkit
                 switch (RawHealthStatus)
                 {
                     case 3:
-                        return StoragePoolHealthStatus.Healthy;
+                        return StorageSpacesHealthStatus.Healthy;
                     case 2:
-                        return StoragePoolHealthStatus.Warning;
+                        return StorageSpacesHealthStatus.Warning;
                     case 1:
-                        return StoragePoolHealthStatus.Unhealthy;
+                        return StorageSpacesHealthStatus.Unhealthy;
                     default:
-                        return StoragePoolHealthStatus.Unknown;
+                        return StorageSpacesHealthStatus.Unknown;
                 }
             }
         }
@@ -198,21 +179,6 @@ namespace DiskInfoToolkit
             MountedVolumeSizeBytes = totalBytes;
             MountedVolumeFreeBytes = freeBytes;
             MountedVolumeCount     = volumeCount;
-        }
-
-        /// <summary>
-        /// Stores the distinct extent disk identifiers and references to supplied disk objects.
-        /// </summary>
-        /// <param name="IDs">The physical disk identifiers found in this space's extents.</param>
-        /// <param name="devices">The matching objects from the caller's disk list.</param>
-        internal void SetExtentDisks(List<Guid> IDs, List<StorageDevice> devices)
-        {
-            // Keep the StorageDevice instances themselves by reference. A caller cannot change
-            // the association lists after this snapshot has been returned.
-            ExtentDiskIDs = new ReadOnlyCollection<Guid>(new List<Guid>(IDs));
-            ExtentDisks   = new ReadOnlyCollection<StorageDevice>(new List<StorageDevice>(devices));
-
-            ExtentInformationAvailable = true;
         }
 
         /// <summary>

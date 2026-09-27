@@ -6,6 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using BlackSharp.Core.Interop.Windows;
 using DiskInfoToolkit.Constants;
 using Microsoft.Win32.SafeHandles;
 using System.Text;
@@ -35,11 +36,9 @@ namespace DiskInfoToolkit.Core
         private const uint GetTasksIoctl        = 0xE70C04;
         private const uint GetTaskInfoIoctl     = 0xE70C08;
 
-        private const int ErrorMoreData         = 234;
-
-        private const int ListBufferSize        = 65536;
-        private const int InfoBufferSize        = 8192;
-        private const int SpaceInfoBufferSize   = 65536;
+        private const int ListBufferSize            = 65536;
+        private const int InfoBufferSize            = 8192;
+        private const int SpaceInfoHeaderBufferSize = 0xBD8;
 
         // Request DWORD 0 is the request size.
         // Pool GUID starts at byte 4; member GUID at byte 20.
@@ -62,8 +61,7 @@ namespace DiskInfoToolkit.Core
         private const int PoolStatusA24Offset         = 0xA24;
         private const int PoolSizeOffset              = 0xA38;
         private const int PoolAllocatedOffset         = 0xA40;
-        private const int PoolConfiguredMembersOffset = 0xA50;
-        private const int PoolInfoMinSize             = PoolConfiguredMembersOffset + sizeof(uint);
+        private const int PoolInfoMinSize             = PoolAllocatedOffset + sizeof(ulong);
 
         // Fixed fields in SpIoctlGetDiskInfo output. Identity strings are packed, NUL-terminated
         // UTF-16 text after the fixed fields, so their positions depend on the lengths of the
@@ -94,7 +92,7 @@ namespace DiskInfoToolkit.Core
         private const int  SpaceAllocatedOffset       = 0xA70;
         private const int  SpaceFootprintOffset       = 0xA78;
         private const int  SpaceInfoMinSize           = SpaceFootprintOffset + sizeof(ulong);
-        private const uint SpaceInfoStructureSize     = 0xBD8;
+        private const uint SpaceInfoStructureSize     = SpaceInfoHeaderBufferSize;
         private const int  SpaceExtentCountOffset     = 0xB30;
         private const int  SpaceExtentsOffset         = 0xB48;
         private const int  SpaceExtentSize            = 0x90;
@@ -222,7 +220,7 @@ namespace DiskInfoToolkit.Core
                             }
                         }
 
-                        pool.SetMembers(memberIDs, members);
+                        pool.SetMembers(memberIDs, members, memberDevicesByID);
                     }
 
                     // SpaceAgent.exe sends a 0x44-byte request for this read-only list IOCTL.
@@ -241,39 +239,19 @@ namespace DiskInfoToolkit.Core
                             // even when they share one pool and the same member disks.
                             var spaceInput = CreateRequest(SpaceInfoRequestSize, poolID, spaceID);
 
-                            // The fixed structure may carry variable data, so allow more room
-                            // than the pool and member information buffers use.
-                            var spaceInfo = new byte[SpaceInfoBufferSize];
+                            // The fixed structure contains the capacity and status fields.
+                            // Extent records are read only by the explicit on-demand method.
+                            var spaceInfo = new byte[SpaceInfoHeaderBufferSize];
 
                             bool received = ioControl.SendRawIoControl(handle, GetSpaceInfoIoctl, spaceInput, spaceInfo, out int spaceInfoLength);
 
-                            // The response carries one extent record per slab, so a large space
-                            // does not fit (a 20 TB space needed 17.8 MB). The driver still fills
-                            // the fixed fields before reporting ERROR_MORE_DATA, so parse those and
-                            // leave the extent list unavailable rather than dropping the space.
+                            // Spaceport reports ERROR_MORE_DATA when the extent array is larger
+                            // than this header buffer. The returned fixed fields remain usable.
                             bool truncated = !received && IsMoreDataError(ioControl);
 
                             if ((received || truncated)
                              && TryParseSpaceInfo(spaceInfo, spaceInfoLength, poolID, spaceID, truncated, out var space))
                             {
-                                if (space.ExtentInformationAvailable)
-                                {
-                                    var extentDisks = new List<StorageDevice>();
-
-                                    foreach (var diskID in space.ExtentDiskIDs)
-                                    {
-                                        // A space's extent GUID names a physical pool disk. Resolve it
-                                        // only through the pool's already matched StorageDevice objects.
-                                        if (memberDevicesByID.TryGetValue(diskID, out var disk)
-                                         && !extentDisks.Contains(disk))
-                                        {
-                                            extentDisks.Add(disk);
-                                        }
-                                    }
-
-                                    space.SetExtentDisks(new(space.ExtentDiskIDs), extentDisks);
-                                }
-
                                 if (TryReadRepairProgress(handle, ioControl, poolID, spaceID, out var repairProgress))
                                 {
                                     space.SetRepairProgress(repairProgress);
@@ -291,6 +269,87 @@ namespace DiskInfoToolkit.Core
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Reads the complete extent table for one space only when explicitly requested.
+        /// </summary>
+        /// <param name="pool">The pool containing the requested space and existing disk references.</param>
+        /// <param name="space">The space whose allocation extents are requested.</param>
+        /// <param name="ioControl">The platform IOCTL implementation.</param>
+        /// <param name="maximumResponseBytes">The maximum response size allowed for this request.</param>
+        /// <param name="extentInfo">The complete extent snapshot on success.</param>
+        /// <returns>Whether the full response could be read and validated.</returns>
+        internal static bool TryReadSpaceExtents(StoragePool pool, StorageSpace space, IStorageIoControl ioControl,
+            int maximumResponseBytes, out StorageSpaceExtentInfo extentInfo)
+        {
+            extentInfo = null;
+
+            if (!OS.IsWindows() || ioControl == null || pool == null || space == null
+             || space.PoolID != pool.ID || maximumResponseBytes < SpaceInfoHeaderBufferSize)
+            {
+                return false;
+            }
+
+            using (var handle = ioControl.OpenDevice(SpaceportPath, IoAccess.None, IoShare.ReadWrite, IoCreation.OpenExisting, IoFlags.Normal))
+            {
+                if (handle == null || handle.IsInvalid)
+                {
+                    return false;
+                }
+
+                var input = CreateRequest(SpaceInfoRequestSize, pool.ID, space.ID);
+                var output = new byte[SpaceInfoHeaderBufferSize];
+
+                // DWORD 1 reports the required size even when the driver returns ERROR_MORE_DATA.
+                // A space can have millions of slab records, so never trust that size without a
+                // caller-visible limit. Retry once more if allocation changed between requests.
+                for (int attempt = 0; attempt < 3; ++attempt)
+                {
+                    bool received = ioControl.SendRawIoControl(handle, GetSpaceInfoIoctl, input, output, out int length);
+
+                    if (received)
+                    {
+                        if (!TryParseSpaceExtents(output, length, pool.ID, space.ID, out uint count, out var diskIDs))
+                        {
+                            return false;
+                        }
+
+                        var disks = new List<StorageDevice>();
+
+                        foreach (var diskID in diskIDs)
+                        {
+                            // Only retain the exact objects resolved by the original pool scan.
+                            if (pool.MemberDevicesByID.TryGetValue(diskID, out var disk) && !disks.Contains(disk))
+                            {
+                                disks.Add(disk);
+                            }
+                        }
+
+                        extentInfo = new StorageSpaceExtentInfo(count, diskIDs, disks);
+                        return true;
+                    }
+
+                    if (!IsMoreDataError(ioControl)
+                     || !HasTruncatedInfoResponse(output, length, SpaceInfoMinSize, SpaceInfoStructureSize)
+                     || ReadGuid(output, SpacePoolIDOffset) != pool.ID
+                     || ReadGuid(output, SpaceIDOffset) != space.ID)
+                    {
+                        return false;
+                    }
+
+                    uint required = BitConverter.ToUInt32(output, 4);
+
+                    if (required <= output.Length || required > maximumResponseBytes)
+                    {
+                        return false;
+                    }
+
+                    output = new byte[(int)required];
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -354,16 +413,15 @@ namespace DiskInfoToolkit.Core
                 return false;
             }
 
-            // A18 marks the primordial pool, A38/A40 are total/allocated bytes, and A50 is the
-            // configured member count. In the controlled unplug/replug test, only A20 and A24
-            // changed (3/3 -> 2/2 -> 1/1 -> 3/3); other status pairs remain unmapped.
+            // A18 marks the primordial pool; A38/A40 are total/allocated bytes.
+            // In the controlled unplug/replug test, only A20 and A24 changed
+            // (3/3 -> 2/2 -> 1/1 -> 3/3); other status pairs remain unmapped.
             pool = new StoragePool(
                 expectedID,
                 name,
                 description,
                 BitConverter.ToUInt16(buffer, PoolPrimordialOffset) != 0,
-                BitConverter.ToUInt64(buffer, PoolSizeOffset), BitConverter.ToUInt64(buffer, PoolAllocatedOffset),
-                BitConverter.ToUInt32(buffer, PoolConfiguredMembersOffset),
+                BitConverter.ToUInt64(buffer, PoolSizeOffset     ), BitConverter.ToUInt64(buffer, PoolAllocatedOffset),
                 BitConverter.ToUInt32(buffer, PoolStatusA20Offset), BitConverter.ToUInt32(buffer, PoolStatusA24Offset));
 
             return true;
@@ -384,7 +442,7 @@ namespace DiskInfoToolkit.Core
 
             if (!HasValidInfoResponse(buffer, length, DiskInfoMinSize, DiskInfoStructureSize)
              || ReadGuid(buffer, MemberPoolIDOffset) != expectedPoolID
-             || ReadGuid(buffer, MemberIDOffset) != expectedDiskID)
+             || ReadGuid(buffer, MemberIDOffset    ) != expectedDiskID)
             {
                 return false;
             }
@@ -446,38 +504,8 @@ namespace DiskInfoToolkit.Core
                 return false;
             }
 
-            // SpIoctlGetSpaceInfo enumerates SDB_SPACE extents. For each extent it follows
-            // SDB_EXTENT::GetDrive and copies that SDB_DRIVE's GUID into the 0x90-byte record
-            // at record + 0x64. The count is at 0xB30 and the array begins at 0xB48.
-            // Validate against the declared response size before reading any extent record.
-            // A truncated response holds only part of the array, so its extents are not read.
-            List<Guid> extentDiskIDs = null;
-
-            if (!truncated)
-            {
-                uint count = BitConverter.ToUInt32(buffer, SpaceExtentCountOffset);
-
-                uint responseSize = BitConverter.ToUInt32(buffer, 4);
-
-                if (count > (responseSize - SpaceExtentsOffset) / SpaceExtentSize)
-                {
-                    return false;
-                }
-
-                extentDiskIDs = new List<Guid>();
-
-                for (int i = 0; i < count; i++)
-                {
-                    var diskID = ReadGuid(buffer, SpaceExtentsOffset + i * SpaceExtentSize + SpaceExtentDiskIDOffset);
-
-                    if (diskID != Guid.Empty && !extentDiskIDs.Contains(diskID))
-                    {
-                        extentDiskIDs.Add(diskID);
-                    }
-                }
-            }
-
-            // A space can have no allocated extents, even while its pool has member disks.
+            // The initial pool scan uses only this fixed header. Extent records are not
+            // inspected until the caller requests them through TryReadSpaceExtents.
             string name = ReadUtf16(buffer, SpaceNameOffset, SpaceNameCharacters);
 
             if (string.IsNullOrWhiteSpace(name))
@@ -513,11 +541,57 @@ namespace DiskInfoToolkit.Core
 
             space.SetStatus(BitConverter.ToUInt32(buffer, SpaceHealthOffset), operationalStatus);
 
-            if (extentDiskIDs != null)
+            return true;
+        }
+
+        /// <summary>
+        /// Parses every record of a complete Spaceport extent response.
+        /// </summary>
+        /// <param name="buffer">The full IOCTL output buffer.</param>
+        /// <param name="length">The number of bytes actually returned by DeviceIoControl.</param>
+        /// <param name="expectedPoolID">The pool identifier used in the request.</param>
+        /// <param name="expectedSpaceID">The space identifier used in the request.</param>
+        /// <param name="extentCount">The number of extent records reported by Spaceport.</param>
+        /// <param name="diskIDs">Distinct disk identifiers in first occurrence order.</param>
+        /// <returns>Whether the full response and extent table are valid.</returns>
+        internal static bool TryParseSpaceExtents(byte[] buffer, int length, Guid expectedPoolID, Guid expectedSpaceID,
+            out uint extentCount, out List<Guid> diskIDs)
+        {
+            extentCount = 0;
+            diskIDs = null;
+
+            if (!HasValidInfoResponse(buffer, length, SpaceInfoMinSize, SpaceInfoStructureSize)
+             || ReadGuid(buffer, SpacePoolIDOffset) != expectedPoolID
+             || ReadGuid(buffer, SpaceIDOffset) != expectedSpaceID)
             {
-                space.SetExtentDisks(extentDiskIDs, new List<StorageDevice>());
+                return false;
             }
 
+            uint count = BitConverter.ToUInt32(buffer, SpaceExtentCountOffset);
+            uint responseSize = BitConverter.ToUInt32(buffer, 4);
+
+            if (count > (responseSize - SpaceExtentsOffset) / SpaceExtentSize)
+            {
+                return false;
+            }
+
+            // SDB_EXTENT::GetDrive contributes the GUID at record + 0x64. The remaining
+            // record fields are not exposed because their meanings are not yet verified.
+            var seen = new HashSet<Guid>();
+            var IDs = new List<Guid>();
+
+            for (int i = 0; i < count; ++i)
+            {
+                var diskID = ReadGuid(buffer, SpaceExtentsOffset + i * SpaceExtentSize + SpaceExtentDiskIDOffset);
+
+                if (diskID != Guid.Empty && seen.Add(diskID))
+                {
+                    IDs.Add(diskID);
+                }
+            }
+
+            extentCount = count;
+            diskIDs = IDs;
             return true;
         }
 
@@ -714,7 +788,8 @@ namespace DiskInfoToolkit.Core
         /// <returns>Whether the last Windows error was ERROR_MORE_DATA.</returns>
         private static bool IsMoreDataError(IStorageIoControl ioControl)
         {
-            return ioControl is WindowsStorageIoControl windowsIo && windowsIo.LastIoControlError == ErrorMoreData;
+            return ioControl is WindowsStorageIoControl windowsIo
+                && windowsIo.LastIoControlError == Win32ErrorCodes.MoreData;
         }
 
         /// <summary>

@@ -216,6 +216,43 @@ namespace DiskInfoToolkit
         }
 
         /// <summary>
+        /// Reads the complete extent table of one Storage Spaces space on demand and
+        /// reports its distinct physical disks. Existing disk objects are reused.
+        /// </summary>
+        /// <param name="pool">The pool containing the space and its already detected members.</param>
+        /// <param name="space">The space whose extents are requested.</param>
+        /// <param name="extentInfo">The complete extent snapshot on success, otherwise null.</param>
+        /// <param name="maximumResponseBytes">The largest Spaceport response to allocate in bytes. Default is 128 MB.</param>
+        /// <returns>Whether a complete, validated extent response was read.</returns>
+        public static bool TryGetStorageSpaceExtentDisks(StoragePool pool, StorageSpace space,
+            out StorageSpaceExtentInfo extentInfo, int maximumResponseBytes = 128 * 1000 * 1000)
+        {
+            if (pool == null)
+            {
+                throw new ArgumentNullException(nameof(pool));
+            }
+
+            if (space == null)
+            {
+                throw new ArgumentNullException(nameof(space));
+            }
+
+            if (space.PoolID != pool.ID)
+            {
+                throw new ArgumentException("The storage space does not belong to this pool.", nameof(space));
+            }
+
+            if (maximumResponseBytes < 0xBD8)
+            {
+                throw new ArgumentOutOfRangeException(nameof(maximumResponseBytes));
+            }
+
+            return WindowsStorageSpacesPoolReader.TryReadSpaceExtents(
+                pool, space, OS.IsWindows() ? StorageIoControlFactory.Create() : null,
+                maximumResponseBytes, out extentInfo);
+        }
+
+        /// <summary>
         /// Refreshes the current state of the specified storage device.
         /// </summary>
         /// <param name="device">The device to refresh.</param>

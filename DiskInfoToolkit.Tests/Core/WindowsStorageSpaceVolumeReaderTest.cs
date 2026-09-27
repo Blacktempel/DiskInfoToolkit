@@ -31,7 +31,7 @@ namespace DiskInfoToolkit.Tests.Core
             var space      = new StorageSpace(poolID, spaceID, "Test space"      , string.Empty, 1000);
             var otherSpace = new StorageSpace(poolID, otherID, "Other test space", string.Empty, 1000);
 
-            var pool = new StoragePool(poolID, "Test pool", string.Empty, false, 2000, 1000, 1, 3, 3);
+            var pool = new StoragePool(poolID, "Test pool", string.Empty, false, 2000, 1000, 3, 3);
 
             pool.SetSpaces(new List<StorageSpace> { space, otherSpace });
 

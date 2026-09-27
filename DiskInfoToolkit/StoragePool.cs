@@ -27,25 +27,24 @@ namespace DiskInfoToolkit
         /// <param name="isPrimordial">Whether this is the primordial pool.</param>
         /// <param name="sizeBytes">The total physical capacity in bytes.</param>
         /// <param name="allocatedBytes">The allocated physical capacity in bytes.</param>
-        /// <param name="configuredMemberCount">The number of configured members.</param>
         /// <param name="rawStatusA20">The unmodified status field at response offset 0xA20.</param>
         /// <param name="rawStatusA24">The unmodified status field at response offset 0xA24.</param>
         internal StoragePool(Guid poolID, string name, string description, bool isPrimordial,
-            ulong sizeBytes, ulong allocatedBytes, uint configuredMemberCount, uint rawStatusA20, uint rawStatusA24)
+            ulong sizeBytes, ulong allocatedBytes, uint rawStatusA20, uint rawStatusA24)
         {
-            ID                      = poolID;
-            Name                    = name;
-            Description             = description;
-            IsPrimordial            = isPrimordial;
-            SizeBytes               = sizeBytes;
-            AllocatedBytes          = allocatedBytes;
-            ConfiguredMemberCount   = configuredMemberCount;
-            RawStatusA20            = rawStatusA20;
-            RawStatusA24            = rawStatusA24;
+            ID                = poolID;
+            Name              = name;
+            Description       = description;
+            IsPrimordial      = isPrimordial;
+            SizeBytes         = sizeBytes;
+            AllocatedBytes    = allocatedBytes;
+            RawStatusA20      = rawStatusA20;
+            RawStatusA24      = rawStatusA24;
 
-            MemberDiskIDs = new ReadOnlyCollection<Guid>(new List<Guid>());
-            Members       = new ReadOnlyCollection<StorageDevice>(new List<StorageDevice>());
-            Spaces        = new ReadOnlyCollection<StorageSpace>(new List<StorageSpace>());
+            MemberDiskIDs     = new ReadOnlyCollection<Guid>(new List<Guid>());
+            Members           = new ReadOnlyCollection<StorageDevice>(new List<StorageDevice>());
+            Spaces            = new ReadOnlyCollection<StorageSpace>(new List<StorageSpace>());
+            MemberDevicesByID = new ReadOnlyDictionary<Guid, StorageDevice>(new Dictionary<Guid, StorageDevice>());
         }
 
         #endregion
@@ -88,15 +87,10 @@ namespace DiskInfoToolkit
         public ulong? FreeBytes => AllocatedBytes <= SizeBytes ? SizeBytes - AllocatedBytes : (ulong?)null;
 
         /// <summary>
-        /// Gets the number of members configured in a non-primordial pool, including disconnected disks.
-        /// </summary>
-        public uint ConfiguredMemberCount { get; }
-
-        /// <summary>
         /// Pool health for verified Spaceport status pairs. Other values remain unknown.
         /// This is independent of the SMART health of any member disk.
         /// </summary>
-        public StoragePoolHealthStatus HealthStatus
+        public StorageSpacesHealthStatus HealthStatus
         {
             get
             {
@@ -104,22 +98,22 @@ namespace DiskInfoToolkit
                 // to their initial values after reconnection. Mixed or unseen pairs stay unknown.
                 if (RawStatusA20 == 3 && RawStatusA24 == 3)
                 {
-                    return StoragePoolHealthStatus.Healthy;
+                    return StorageSpacesHealthStatus.Healthy;
                 }
 
                 if (RawStatusA20 == 2 && RawStatusA24 == 2)
                 {
-                    return StoragePoolHealthStatus.Warning;
+                    return StorageSpacesHealthStatus.Warning;
                 }
 
                 // Seen with two or three of four disks removed from a two-way mirror pool,
                 // while Windows reported the pool as Unhealthy / Read-only.
                 if (RawStatusA20 == 1 && RawStatusA24 == 1)
                 {
-                    return StoragePoolHealthStatus.Unhealthy;
+                    return StorageSpacesHealthStatus.Unhealthy;
                 }
 
-                return StoragePoolHealthStatus.Unknown;
+                return StorageSpacesHealthStatus.Unknown;
             }
         }
 
@@ -132,6 +126,11 @@ namespace DiskInfoToolkit
         /// Gets the already detected disk objects matched to this pool by serial number.
         /// </summary>
         public IReadOnlyList<StorageDevice> Members { get; private set; }
+
+        /// <summary>
+        /// Resolves member identifiers to the already detected disk objects retained by this snapshot.
+        /// </summary>
+        internal IReadOnlyDictionary<Guid, StorageDevice> MemberDevicesByID { get; private set; }
 
         /// <summary>
         /// Gets a value indicating whether member identifiers could be read from Spaceport.
@@ -191,12 +190,14 @@ namespace DiskInfoToolkit
         /// </summary>
         /// <param name="IDs">The member identifiers returned by Spaceport.</param>
         /// <param name="devices">The matching objects from the caller's disk list.</param>
-        internal void SetMembers(List<Guid> IDs, List<StorageDevice> devices)
+        /// <param name="devicesByID">The matching objects keyed by Spaceport member identifier.</param>
+        internal void SetMembers(List<Guid> IDs, List<StorageDevice> devices, Dictionary<Guid, StorageDevice> devicesByID)
         {
             // Copy the collections so a later caller cannot change this pool snapshot.
             // The disk objects themselves are kept by reference; no second StorageDevice is constructed.
-            MemberDiskIDs = new ReadOnlyCollection<Guid>(new List<Guid>(IDs));
-            Members       = new ReadOnlyCollection<StorageDevice>(new List<StorageDevice>(devices));
+            MemberDiskIDs     = new ReadOnlyCollection<Guid>(new List<Guid>(IDs));
+            Members           = new ReadOnlyCollection<StorageDevice>(new List<StorageDevice>(devices));
+            MemberDevicesByID = new ReadOnlyDictionary<Guid, StorageDevice>(new Dictionary<Guid, StorageDevice>(devicesByID));
 
             MemberInformationAvailable = true;
         }

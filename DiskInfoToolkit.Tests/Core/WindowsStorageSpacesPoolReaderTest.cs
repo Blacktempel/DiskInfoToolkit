@@ -53,8 +53,7 @@ namespace DiskInfoToolkit.Tests.Core
             Assert.AreEqual((ulong)2000, pool.SizeBytes);
             Assert.AreEqual((ulong)300, pool.AllocatedBytes);
             Assert.AreEqual((ulong)1700, pool.FreeBytes);
-            Assert.AreEqual((uint)2, pool.ConfiguredMemberCount);
-            Assert.AreEqual(StoragePoolHealthStatus.Healthy, pool.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Healthy, pool.HealthStatus);
             Assert.AreEqual((uint)3, pool.RawStatusA20);
             Assert.AreEqual((uint)3, pool.RawStatusA24);
         }
@@ -76,11 +75,11 @@ namespace DiskInfoToolkit.Tests.Core
             PutUInt32(bytes, 0xA24, 2);
 
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParsePoolInfo(bytes, bytes.Length, ID, out var pool));
-            Assert.AreEqual(StoragePoolHealthStatus.Warning, pool.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Warning, pool.HealthStatus);
 
             PutUInt32(bytes, 0xA24, 3);
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParsePoolInfo(bytes, bytes.Length, ID, out pool));
-            Assert.AreEqual(StoragePoolHealthStatus.Unknown, pool.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Unknown, pool.HealthStatus);
         }
 
         /// <summary>
@@ -100,11 +99,11 @@ namespace DiskInfoToolkit.Tests.Core
             PutUInt32(bytes, 0xA24, 1);
 
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParsePoolInfo(bytes, bytes.Length, ID, out var pool));
-            Assert.AreEqual(StoragePoolHealthStatus.Unhealthy, pool.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Unhealthy, pool.HealthStatus);
 
             PutUInt32(bytes, 0xA24, 2);
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParsePoolInfo(bytes, bytes.Length, ID, out pool));
-            Assert.AreEqual(StoragePoolHealthStatus.Unknown, pool.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Unknown, pool.HealthStatus);
         }
 
         /// <summary>
@@ -257,7 +256,7 @@ namespace DiskInfoToolkit.Tests.Core
                 spaces.Add(space);
             }
 
-            var pool = new StoragePool(poolID, "Test Pool", string.Empty, false, 5000, 3000, 2, 3, 3);
+            var pool = new StoragePool(poolID, "Test Pool", string.Empty, false, 5000, 3000, 3, 3);
             pool.SetSpaces(spaces);
 
             Assert.IsTrue(pool.SpaceInformationAvailable);
@@ -274,7 +273,7 @@ namespace DiskInfoToolkit.Tests.Core
         }
 
         /// <summary>
-        /// Reads distinct physical disk GUIDs from space extents and keeps existing disk references.
+        /// Parses all extent records only when explicitly requested and keeps existing disk references.
         /// </summary>
         [TestMethod]
         public void ParsesSpaceExtentDisksWithoutCreatingDiskObjects()
@@ -295,21 +294,27 @@ namespace DiskInfoToolkit.Tests.Core
             PutGuid(bytes, 0xB48 + 0x90 + 0x64, secondID);
             PutGuid(bytes, 0xB48 + 2 * 0x90 + 0x64, firstID);
 
-            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out var space));
-            CollectionAssert.AreEqual(new[] { firstID, secondID }, space.ExtentDiskIDs.ToArray());
-            Assert.IsTrue(space.ExtentInformationAvailable);
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out _));
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceExtents(
+                bytes, bytes.Length, poolID, spaceID, out uint extentCount, out var diskIDs));
+
+            Assert.AreEqual((uint)3, extentCount);
+            CollectionAssert.AreEqual(new[] { firstID, secondID }, diskIDs);
 
             var firstDisk = new StorageDevice();
             var secondDisk = new StorageDevice();
 
-            space.SetExtentDisks(new List<Guid>(space.ExtentDiskIDs), new List<StorageDevice> { firstDisk, secondDisk });
+            var extentInfo = new StorageSpaceExtentInfo(extentCount, diskIDs, new List<StorageDevice> { firstDisk, secondDisk });
 
-            Assert.AreSame(firstDisk, space.ExtentDisks[0]);
-            Assert.AreSame(secondDisk, space.ExtentDisks[1]);
+            Assert.AreSame(firstDisk, extentInfo.Disks[0]);
+            Assert.AreSame(secondDisk, extentInfo.Disks[1]);
+
+            Assert.AreEqual((uint)3, extentInfo.ExtentCount);
 
             // The declared count must fit in the actual response, even when a large buffer exists.
             PutUInt32(bytes, 0xB30, 5);
-            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out _));
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceExtents(
+                bytes, bytes.Length, poolID, spaceID, out _, out _));
         }
 
         /// <summary>
@@ -324,24 +329,24 @@ namespace DiskInfoToolkit.Tests.Core
             // Degraded with a lost disk: Warning, then Degraded, Incomplete, InService.
             var bytes = CreateSpaceInfo(poolID, spaceID, 2, 3, 4, 5);
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out var space));
-            Assert.AreEqual(StoragePoolHealthStatus.Warning, space.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Warning, space.HealthStatus);
             CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Degraded, StorageSpaceOperationalStatus.Incomplete,
                 StorageSpaceOperationalStatus.InService }, space.OperationalStatus.ToArray());
 
             bytes = CreateSpaceInfo(poolID, spaceID, 3, 7);
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
-            Assert.AreEqual(StoragePoolHealthStatus.Healthy, space.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Healthy, space.HealthStatus);
             CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.OK }, space.OperationalStatus.ToArray());
 
             bytes = CreateSpaceInfo(poolID, spaceID, 1, 1);
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
-            Assert.AreEqual(StoragePoolHealthStatus.Unhealthy, space.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Unhealthy, space.HealthStatus);
             CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Detached }, space.OperationalStatus.ToArray());
 
             // Unverified codes stay unknown rather than being guessed.
             bytes = CreateSpaceInfo(poolID, spaceID, 9, 9);
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out space));
-            Assert.AreEqual(StoragePoolHealthStatus.Unknown, space.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Unknown, space.HealthStatus);
             CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Unknown }, space.OperationalStatus.ToArray());
 
             // The status array ends before the value that always follows it at 0xA60.
@@ -354,21 +359,20 @@ namespace DiskInfoToolkit.Tests.Core
             bytes = CreateSpaceInfo(poolID, spaceID, 2, 3);
             PutUInt32(bytes, 4, 0x1100000);
             Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, true, out space));
-            Assert.AreEqual(StoragePoolHealthStatus.Warning, space.HealthStatus);
+            Assert.AreEqual(StorageSpacesHealthStatus.Warning, space.HealthStatus);
             CollectionAssert.AreEqual(new[] { StorageSpaceOperationalStatus.Degraded }, space.OperationalStatus.ToArray());
         }
 
         /// <summary>
-        /// Keeps a large space whose extent array did not fit, without reporting partial extents.
+        /// Keeps a space when its extent array does not fit in the header response.
         /// </summary>
         [TestMethod]
         public void ParsesFixedFieldsOfTruncatedSpaceInformation()
         {
-            // Shape observed for a 20 TB thin space: about 123,500 extents need about 17.8 MB,
-            // and a 64 KB buffer returns 0xFFF8 bytes with ERROR_MORE_DATA.
+            // Shape observed for a 20 TB thin space: about 123,500 extents need about 17.8 MB.
             var poolID = Guid.NewGuid();
             var spaceID = Guid.NewGuid();
-            var bytes = new byte[0xFFF8];
+            var bytes = new byte[0xBD8];
 
             PutUInt32(bytes, 0, 0xBD8);
             PutUInt32(bytes, 4, 0x1100000);
@@ -379,7 +383,6 @@ namespace DiskInfoToolkit.Tests.Core
             PutUInt64(bytes, 0xA70, 16000000000000);
             PutUInt64(bytes, 0xA78, 32000000000000);
             PutUInt32(bytes, 0xB30, 123500);
-            PutGuid(bytes, 0xB48 + 0x64, Guid.NewGuid());
 
             // Without the driver's ERROR_MORE_DATA the declared size does not fit and is rejected.
             Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, out _));
@@ -389,15 +392,49 @@ namespace DiskInfoToolkit.Tests.Core
             Assert.AreEqual((ulong)20000000000000, space.SizeBytes);
             Assert.AreEqual((ulong)16000000000000, space.AllocatedBytes);
             Assert.AreEqual((ulong)32000000000000, space.FootprintOnPoolBytes);
-            Assert.IsFalse(space.ExtentInformationAvailable);
-            Assert.AreEqual(0, space.ExtentDiskIDs.Count);
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceExtents(
+                bytes, bytes.Length, poolID, spaceID, out _, out _));
 
             // A truncated response must still hold the complete fixed structure.
             Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, 0xBD7, poolID, spaceID, true, out _));
 
             // A response that did fit is not treated as truncated.
-            PutUInt32(bytes, 4, 0xFFF8);
+            PutUInt32(bytes, 4, 0xBD8);
             Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceInfo(bytes, bytes.Length, poolID, spaceID, true, out _));
+        }
+
+        /// <summary>
+        /// Reads a complete multi-megabyte extent table without truncation.
+        /// </summary>
+        [TestMethod]
+        public void ParsesLargeCompleteSpaceExtentTable()
+        {
+            var poolID = Guid.NewGuid();
+            var spaceID = Guid.NewGuid();
+            var diskID = Guid.NewGuid();
+
+            const int count = 123500;
+            var bytes = new byte[0xB48 + count * 0x90];
+
+            PutUInt32(bytes, 0, 0xBD8);
+            PutUInt32(bytes, 4, (uint)bytes.Length);
+            PutGuid(bytes, 8, poolID);
+            PutGuid(bytes, 0x18, spaceID);
+            PutUInt32(bytes, 0xB30, count);
+
+            for (int i = 0; i < count; ++i)
+            {
+                PutGuid(bytes, 0xB48 + i * 0x90 + 0x64, diskID);
+            }
+
+            Assert.IsTrue(WindowsStorageSpacesPoolReader.TryParseSpaceExtents(
+                bytes, bytes.Length, poolID, spaceID, out uint parsedCount, out var diskIDs));
+
+            Assert.AreEqual((uint)count, parsedCount);
+            CollectionAssert.AreEqual(new[] { diskID }, diskIDs);
+
+            Assert.IsFalse(WindowsStorageSpacesPoolReader.TryParseSpaceExtents(
+                bytes, bytes.Length, poolID, Guid.NewGuid(), out _, out _));
         }
 
         /// <summary>
@@ -446,7 +483,7 @@ namespace DiskInfoToolkit.Tests.Core
         public void AggregatesPoolRepairProgressOnlyFromActiveSpaces()
         {
             var poolID = Guid.NewGuid();
-            var pool = new StoragePool(poolID, "Test Pool", string.Empty, false, 5000, 3000, 2, 3, 3);
+            var pool = new StoragePool(poolID, "Test Pool", string.Empty, false, 5000, 3000, 3, 3);
 
             Assert.IsNull(pool.RepairProgressPercent);
 
