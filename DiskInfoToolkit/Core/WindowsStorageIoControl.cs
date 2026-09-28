@@ -14,6 +14,7 @@ using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -35,6 +36,22 @@ namespace DiskInfoToolkit.Core
 
         private static int _openDeviceWorkerSequence;
 
+        private const int DefaultIoControlTimeoutMilliseconds = 30000;
+
+        private const int DefaultIoControlTimeoutCooldownMilliseconds = 300000;
+
+        private const int IoControlTimeoutError = 1460; //ERROR_TIMEOUT
+
+        private static readonly ConcurrentDictionary<string, DateTime> IoControlTimeouts = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
+        private static readonly ConditionalWeakTable<SafeFileHandle, string> OpenDeviceHandlePaths = new ConditionalWeakTable<SafeFileHandle, string>();
+
+        private static readonly object IoControlWorkerSyncRoot = new object();
+
+        private static IoControlWorker _ioControlWorker;
+
+        private static int _ioControlWorkerSequence;
+
         #endregion
 
         #region Properties
@@ -42,6 +59,10 @@ namespace DiskInfoToolkit.Core
         public static int OpenDeviceTimeoutMilliseconds { get; set; } = DefaultOpenDeviceTimeoutMilliseconds;
 
         public static int OpenDeviceTimeoutCooldownMilliseconds { get; set; } = DefaultOpenDeviceTimeoutCooldownMilliseconds;
+
+        public static int IoControlTimeoutMilliseconds { get; set; } = DefaultIoControlTimeoutMilliseconds;
+
+        public static int IoControlTimeoutCooldownMilliseconds { get; set; } = DefaultIoControlTimeoutCooldownMilliseconds;
 
         public uint LastIoControlCode { get; private set; }
 
@@ -71,31 +92,35 @@ namespace DiskInfoToolkit.Core
 
             if (OpenDeviceTimeoutMilliseconds <= 0)
             {
-                return OpenDeviceCore(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes);
+                SafeFileHandle handle = OpenDeviceCore(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes);
+                TrackOpenDevicePath(handle, path);
+                return handle;
             }
 
-            return OpenDeviceWithTimeout(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes, OpenDeviceTimeoutMilliseconds);
+            SafeFileHandle handleWithTimeout = OpenDeviceWithTimeout(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes, OpenDeviceTimeoutMilliseconds);
+            TrackOpenDevicePath(handleWithTimeout, path);
+            return handleWithTimeout;
         }
 
         public bool SendRawIoControl(SafeFileHandle handle, uint ioControlCode, byte[] inBuffer, byte[] outBuffer, out int bytesReturned)
         {
-            bool success = Kernel32Native.DeviceIoControl(
-                handle,
-                ioControlCode,
-                inBuffer,
-                inBuffer != null ? inBuffer.Length : 0,
-                outBuffer,
-                outBuffer != null ? outBuffer.Length : 0,
-                out bytesReturned,
-                IntPtr.Zero);
+            if (IsIoControlInTimeoutCooldown(handle))
+            {
+                return RecordIoControlTimeout(ioControlCode, out bytesReturned);
+            }
 
-            int lastError = Marshal.GetLastWin32Error();
+            if (IoControlTimeoutMilliseconds <= 0)
+            {
+                bool success = SendRawIoControlCore(handle, ioControlCode, inBuffer, outBuffer, out bytesReturned, out int lastError);
 
-            LastIoControlCode      = ioControlCode;
-            LastIoControlSucceeded = success;
-            LastIoControlError     = success ? 0 : lastError;
+                LastIoControlCode      = ioControlCode;
+                LastIoControlSucceeded = success;
+                LastIoControlError     = success ? 0 : lastError;
 
-            return success;
+                return success;
+            }
+
+            return SendRawIoControlWithTimeout(handle, ioControlCode, inBuffer, outBuffer, out bytesReturned, IoControlTimeoutMilliseconds);
         }
 
         public bool TryGetStorageDeviceDescriptor(SafeFileHandle handle, out StorageDeviceDescriptorInfo descriptor)
@@ -385,6 +410,23 @@ namespace DiskInfoToolkit.Core
             return Kernel32Native.CreateFile(path, desiredAccess, shareMode, IntPtr.Zero, creationDisposition, flagsAndAttributes, IntPtr.Zero);
         }
 
+        internal static bool SendRawIoControlCore(SafeFileHandle handle, uint ioControlCode, byte[] inBuffer, byte[] outBuffer, out int bytesReturned, out int lastError)
+        {
+            bool success = Kernel32Native.DeviceIoControl(
+                handle,
+                ioControlCode,
+                inBuffer,
+                inBuffer != null ? inBuffer.Length : 0,
+                outBuffer,
+                outBuffer != null ? outBuffer.Length : 0,
+                out bytesReturned,
+                IntPtr.Zero);
+
+            lastError = Marshal.GetLastWin32Error();
+
+            return success;
+        }
+
         #endregion
 
         #region Private
@@ -478,7 +520,108 @@ namespace DiskInfoToolkit.Core
             return new OpenDeviceWorker(id);
         }
 
+        private bool SendRawIoControlWithTimeout(SafeFileHandle handle, uint ioControlCode, byte[] inBuffer, byte[] outBuffer, out int bytesReturned, int timeoutMilliseconds)
+        {
+            var request = new IoControlRequest(handle, ioControlCode, inBuffer, outBuffer);
+
+            try
+            {
+                IoControlWorker worker;
+
+                lock (IoControlWorkerSyncRoot)
+                {
+                    worker = GetOrCreateIoControlWorker();
+                    if (!worker.TryEnqueue(request))
+                    {
+                        worker.MarkAbandoned();
+                        worker = CreateIoControlWorker();
+
+                        if (!worker.TryEnqueue(request))
+                        {
+                            RememberIoControlTimeout(handle);
+                            return RecordIoControlTimeout(ioControlCode, out bytesReturned);
+                        }
+                    }
+
+                    if (!request.Wait(timeoutMilliseconds) && request.MarkTimedOut())
+                    {
+                        worker.MarkAbandoned();
+
+                        if (ReferenceEquals(_ioControlWorker, worker))
+                        {
+                            _ioControlWorker = null;
+                        }
+
+                        RememberIoControlTimeout(handle);
+                        return RecordIoControlTimeout(ioControlCode, out bytesReturned);
+                    }
+                }
+
+                if (request.Exception != null)
+                {
+                    throw request.Exception;
+                }
+
+                bytesReturned           = request.BytesReturned;
+                LastIoControlCode      = ioControlCode;
+                LastIoControlSucceeded = request.Succeeded;
+                LastIoControlError     = request.Succeeded ? 0 : request.LastError;
+
+                return request.Succeeded;
+            }
+            finally
+            {
+                request.Dispose();
+            }
+        }
+
+        private bool RecordIoControlTimeout(uint ioControlCode, out int bytesReturned)
+        {
+            bytesReturned           = 0;
+            LastIoControlCode      = ioControlCode;
+            LastIoControlSucceeded = false;
+            LastIoControlError     = IoControlTimeoutError;
+
+            return false;
+        }
+
+        private static IoControlWorker GetOrCreateIoControlWorker()
+        {
+            if (_ioControlWorker == null || !_ioControlWorker.CanAcceptWork)
+            {
+                _ioControlWorker = CreateIoControlWorker();
+            }
+
+            return _ioControlWorker;
+        }
+
+        private static IoControlWorker CreateIoControlWorker()
+        {
+            int id = Interlocked.Increment(ref _ioControlWorkerSequence);
+            return new IoControlWorker(id);
+        }
+
         private static bool IsOpenDeviceInTimeoutCooldown(string path)
+        {
+            return IsPathInTimeoutCooldown(OpenDeviceTimeouts, path);
+        }
+
+        private static bool IsIoControlInTimeoutCooldown(SafeFileHandle handle)
+        {
+            return IsPathInTimeoutCooldown(IoControlTimeouts, GetHandleDevicePath(handle));
+        }
+
+        private static void RememberOpenDeviceTimeout(string path)
+        {
+            RememberPathTimeout(OpenDeviceTimeouts, path, OpenDeviceTimeoutCooldownMilliseconds);
+        }
+
+        private static void RememberIoControlTimeout(SafeFileHandle handle)
+        {
+            RememberPathTimeout(IoControlTimeouts, GetHandleDevicePath(handle), IoControlTimeoutCooldownMilliseconds);
+        }
+
+        private static bool IsPathInTimeoutCooldown(ConcurrentDictionary<string, DateTime> timeouts, string path)
         {
             string key = StringUtil.TrimStorageString(path);
             if (string.IsNullOrWhiteSpace(key))
@@ -486,7 +629,7 @@ namespace DiskInfoToolkit.Core
                 return false;
             }
 
-            if (!OpenDeviceTimeouts.TryGetValue(key, out var blockedUntilUtc))
+            if (!timeouts.TryGetValue(key, out var blockedUntilUtc))
             {
                 return false;
             }
@@ -496,20 +639,41 @@ namespace DiskInfoToolkit.Core
                 return true;
             }
 
-            OpenDeviceTimeouts.TryRemove(key, out _);
+            timeouts.TryRemove(key, out _);
             return false;
         }
 
-        private static void RememberOpenDeviceTimeout(string path)
+        private static void RememberPathTimeout(ConcurrentDictionary<string, DateTime> timeouts, string path, int cooldownMilliseconds)
         {
             string key = StringUtil.TrimStorageString(path);
-            if (string.IsNullOrWhiteSpace(key) || OpenDeviceTimeoutCooldownMilliseconds <= 0)
+            if (string.IsNullOrWhiteSpace(key) || cooldownMilliseconds <= 0)
             {
                 return;
             }
 
-            var blockedUntilUtc = DateTime.UtcNow.AddMilliseconds(OpenDeviceTimeoutCooldownMilliseconds);
-            OpenDeviceTimeouts[key] = blockedUntilUtc;
+            var blockedUntilUtc = DateTime.UtcNow.AddMilliseconds(cooldownMilliseconds);
+            timeouts[key] = blockedUntilUtc;
+        }
+
+        private static string GetHandleDevicePath(SafeFileHandle handle)
+        {
+            if (handle == null)
+            {
+                return null;
+            }
+
+            OpenDeviceHandlePaths.TryGetValue(handle, out string path);
+            return path;
+        }
+
+        private static void TrackOpenDevicePath(SafeFileHandle handle, string path)
+        {
+            if (handle == null || handle.IsInvalid || string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
+            OpenDeviceHandlePaths.Add(handle, path);
         }
 
         private static SafeFileHandle CreateInvalidFileHandle()
