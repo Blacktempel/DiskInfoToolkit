@@ -11,7 +11,7 @@ using DiskInfoToolkit.Core;
 namespace DiskInfoToolkit.Tests.Core
 {
     /// <summary>
-    /// Verifies volume-to-space association with synthetic disks and an injected volume reader.
+    /// Verifies volume-to-space association with synthetic disk numbers and volume extents.
     /// </summary>
     [TestClass]
     public sealed class WindowsStorageSpaceVolumeReaderTest
@@ -19,50 +19,86 @@ namespace DiskInfoToolkit.Tests.Core
         #region Public
 
         /// <summary>
-        /// Sums each mounted volume once and never queries the host file system.
+        /// Associates multiple spaces independently when GetDisks contains no virtual disk.
         /// </summary>
         [TestMethod]
-        public void PopulatesOnlyTheMatchingSpaceFromSyntheticVolumes()
+        public void PopulatesSpacesWithoutAggregateDisks()
         {
             var poolID  = new Guid("00000000-0000-0000-0000-000000000001");
-            var spaceID = new Guid("00000000-0000-0000-0000-000000000002");
-            var otherID = new Guid("00000000-0000-0000-0000-000000000003");
+            var firstID = new Guid("00000000-0000-0000-0000-000000000002");
+            var secondID = new Guid("00000000-0000-0000-0000-000000000003");
 
-            var space      = new StorageSpace(poolID, spaceID, "Test space"      , string.Empty, 1000);
-            var otherSpace = new StorageSpace(poolID, otherID, "Other test space", string.Empty, 1000);
+            var firstSpace  = new StorageSpace(poolID, firstID , "First space" , string.Empty, 1000);
+            var secondSpace = new StorageSpace(poolID, secondID, "Second space", string.Empty, 1000);
 
             var pool = new StoragePool(poolID, "Test pool", string.Empty, false, 2000, 1000, 3, 3);
+            pool.SetSpaces(new List<StorageSpace> { firstSpace, secondSpace });
 
-            pool.SetSpaces(new List<StorageSpace> { space, otherSpace });
-
-            var disk = new StorageDevice
+            var diskNumbersBySpaceID = new Dictionary<Guid, uint>
             {
-                BusType = StorageBusType.Spaces,
-                SerialNumber = "{" + spaceID.ToString("D") + "}",
-                Partitions = new List<StoragePartitionInfo>
-                {
-                    new() { VolumePath = "synthetic-volume-a" },
-                    new() { VolumePath = "synthetic-volume-a" },
-                    new() { VolumePath = "synthetic-volume-b" },
-                    new() { VolumePath = string.Empty },
-                },
+                [firstID] = 11,
+                [secondID] = 12
+            };
+
+            var volumeDiskNumbers = new Dictionary<string, IReadOnlyList<uint>>
+            {
+                ["synthetic-volume-a"] = new uint[] { 11 },
+                ["synthetic-volume-b"] = new uint[] { 11, 11 },
+                ["synthetic-volume-c"] = new uint[] { 12 },
+                ["spanning-volume"] = new uint[] { 11, 12 },
+                ["unrelated-volume"] = new uint[] { 20 }
             };
 
             var queriedPaths = new List<string>();
-            WindowsStorageSpaceVolumeReader.Populate(new[] { pool }, new[] { disk }, path =>
+            WindowsStorageSpaceVolumeReader.PopulateFromVolumeExtents(
+                new[] { pool }, diskNumbersBySpaceID, volumeDiskNumbers, path =>
             {
                 queriedPaths.Add(path);
-                return path == "synthetic-volume-a" ? (400UL, 300UL) : (200UL, 50UL);
+                return path switch
+                {
+                    "synthetic-volume-a" => (400UL, 300UL),
+                    "synthetic-volume-b" => (200UL, 50UL),
+                    "synthetic-volume-c" => (500UL, 125UL),
+                    _ => throw new AssertFailedException("An unrelated or spanning volume was queried.")
+                };
             });
 
-            CollectionAssert.AreEquivalent(new[] { "synthetic-volume-a", "synthetic-volume-b" }, queriedPaths);
+            CollectionAssert.AreEquivalent(
+                new[] { "synthetic-volume-a", "synthetic-volume-b", "synthetic-volume-c" }, queriedPaths);
 
-            Assert.AreEqual((ulong)600, space.MountedVolumeSizeBytes);
-            Assert.AreEqual((ulong)350, space.MountedVolumeFreeBytes);
-            Assert.AreEqual((ulong)250, space.MountedVolumeUsedBytes);
-            Assert.AreEqual(2, space.MountedVolumeCount);
+            Assert.AreEqual((ulong)600, firstSpace.MountedVolumeSizeBytes);
+            Assert.AreEqual((ulong)350, firstSpace.MountedVolumeFreeBytes);
+            Assert.AreEqual((ulong)250, firstSpace.MountedVolumeUsedBytes);
+            Assert.AreEqual(2, firstSpace.MountedVolumeCount);
 
-            Assert.IsNull(otherSpace.MountedVolumeSizeBytes);
+            Assert.AreEqual((ulong)500, secondSpace.MountedVolumeSizeBytes);
+            Assert.AreEqual((ulong)125, secondSpace.MountedVolumeFreeBytes);
+            Assert.AreEqual((ulong)375, secondSpace.MountedVolumeUsedBytes);
+            Assert.AreEqual(1, secondSpace.MountedVolumeCount);
+        }
+
+        /// <summary>
+        /// Leaves capacity unknown when two spaces claim the same temporary disk number.
+        /// </summary>
+        [TestMethod]
+        public void DoesNotAssignAmbiguousDiskNumber()
+        {
+            var poolID = new Guid("00000000-0000-0000-0000-000000000011");
+
+            var firstSpace = new StorageSpace(poolID , new Guid("00000000-0000-0000-0000-000000000012"), "First" , string.Empty, 1000);
+            var secondSpace = new StorageSpace(poolID, new Guid("00000000-0000-0000-0000-000000000013"), "Second", string.Empty, 1000);
+
+            var pool = new StoragePool(poolID, "Test pool", string.Empty, false, 2000, 1000, 2, 2);
+            pool.SetSpaces(new List<StorageSpace> { firstSpace, secondSpace });
+
+            WindowsStorageSpaceVolumeReader.PopulateFromVolumeExtents(
+                new[] { pool },
+                new Dictionary<Guid, uint> { [firstSpace.ID] = 11, [secondSpace.ID] = 11 },
+                new Dictionary<string, IReadOnlyList<uint>> { ["synthetic-volume"] = new uint[] { 11 } },
+                _ => throw new AssertFailedException("An ambiguous volume was queried."));
+
+            Assert.IsNull(firstSpace.MountedVolumeSizeBytes);
+            Assert.IsNull(secondSpace.MountedVolumeSizeBytes);
         }
 
         #endregion

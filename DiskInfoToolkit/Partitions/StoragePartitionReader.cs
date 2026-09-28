@@ -182,63 +182,27 @@ namespace DiskInfoToolkit.Partitions
             for (char driveLetter = 'A'; driveLetter <= 'Z'; ++driveLetter)
             {
                 string drivePath = $@"\\.\{driveLetter}:";
-                SafeFileHandle handle = ioControl.OpenDevice(
-                    drivePath,
-                    IoAccess.ReadAttributes,
-                    IoShare.All,
-                    IoCreation.OpenExisting,
-                    IoFlags.Normal);
 
-                if (handle == null || handle.IsInvalid)
+                // Try to read the disk extents for the volume.
+                if (!WindowsVolumeDiskExtentReader.TryRead(drivePath, ioControl, out var extents))
                 {
                     continue;
                 }
 
-                using (handle)
+                foreach (var extent in extents)
                 {
-                    var extentBuffer = new byte[BufferSizeConstants.Size4K];
-                    if (!ioControl.SendRawIoControl(handle, IoControlCodes.IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, null, extentBuffer, out var bytesReturned))
+                    foreach (var partition in partitions)
                     {
-                        continue;
-                    }
-
-                    if (bytesReturned < Marshal.SizeOf<VOLUME_DISK_EXTENTS_RAW>())
-                    {
-                        continue;
-                    }
-
-                    var header = StructureHelper.FromBytes<VOLUME_DISK_EXTENTS_RAW>(extentBuffer);
-
-                    int extentOffset = (int)Marshal.OffsetOf<VOLUME_DISK_EXTENTS_RAW>(nameof(VOLUME_DISK_EXTENTS_RAW.FirstExtent));
-                    int extentSize = Marshal.SizeOf<DISK_EXTENT_RAW>();
-
-                    //Iterate through the disk extents for this volume
-                    for (int i = 0; i < header.NumberOfDiskExtents; ++i)
-                    {
-                        int offset = extentOffset + (i * extentSize);
-                        if (offset + extentSize > extentBuffer.Length)
+                        //Match the volume to the partition by disk number and starting offset.
+                        if (extent.DiskNumber == diskNumber && extent.StartingOffset == partition.StartingOffset)
                         {
-                            break;
-                        }
+                            partition.DriveLetter = driveLetter;
+                            partition.VolumePath = $@"{driveLetter}:\";
 
-                        var entryBytes = new byte[extentSize];
-                        Buffer.BlockCopy(extentBuffer, offset, entryBytes, 0, extentSize);
-
-                        var extent = StructureHelper.FromBytes<DISK_EXTENT_RAW>(entryBytes);
-
-                        foreach (var partition in partitions)
-                        {
-                            //Try to find a matching partition for this extent based on disk number and starting offset
-                            if (extent.DiskNumber == diskNumber && extent.StartingOffset == partition.StartingOffset)
+                            //Keep the existing caller-available free-space value.
+                            if (Kernel32Native.GetDiskFreeSpaceEx(partition.VolumePath, out var freeBytes, out _, out _))
                             {
-                                partition.DriveLetter = driveLetter;
-                                partition.VolumePath = $@"{driveLetter}:\";
-
-                                //Get free space for this partition
-                                if (Kernel32Native.GetDiskFreeSpaceEx(partition.VolumePath, out var freeBytes, out var totalBytes, out var totalFreeBytes))
-                                {
-                                    partition.AvailableFreeSpaceBytes = freeBytes;
-                                }
+                                partition.AvailableFreeSpaceBytes = freeBytes;
                             }
                         }
                     }

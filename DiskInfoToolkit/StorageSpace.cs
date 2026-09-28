@@ -84,13 +84,14 @@ namespace DiskInfoToolkit
         public ulong? FootprintOnPoolBytes { get; }
 
         /// <summary>
-        /// Gets the combined capacity of readable mounted file-system volumes on this space.
-        /// Unmounted partitions and unformatted virtual capacity are excluded.
+        /// Gets the combined capacity of readable file-system volumes on this space,
+        /// including volumes accessible only by a volume GUID path. Unavailable or
+        /// unformatted virtual capacity is excluded.
         /// </summary>
         public ulong? MountedVolumeSizeBytes { get; private set; }
 
         /// <summary>
-        /// Gets the combined free bytes on readable mounted volumes on this space.
+        /// Gets the combined free bytes on readable file-system volumes on this space.
         /// </summary>
         public ulong? MountedVolumeFreeBytes { get; private set; }
 
@@ -113,7 +114,7 @@ namespace DiskInfoToolkit
         }
 
         /// <summary>
-        /// Gets the number of mounted volumes included in the file-system capacity values.
+        /// Gets the number of readable volumes included in the file-system capacity values.
         /// </summary>
         public int MountedVolumeCount { get; private set; }
 
@@ -164,7 +165,7 @@ namespace DiskInfoToolkit
         #region Internal
 
         /// <summary>
-        /// Stores capacity read from mounted file-system volumes of the matching virtual disk.
+        /// Stores capacity read from file-system volumes of the matching virtual disk.
         /// </summary>
         /// <param name="totalBytes">Combined file-system capacity.</param>
         /// <param name="freeBytes">Combined free file-system capacity.</param>

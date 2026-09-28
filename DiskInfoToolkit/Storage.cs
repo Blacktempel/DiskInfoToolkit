@@ -192,7 +192,7 @@ namespace DiskInfoToolkit
 
         /// <summary>
         /// Reads concrete Microsoft Storage Spaces pools, their spaces and member references.
-        /// No physical disks are enumerated or probed by this method.
+        /// Mounted-volume usage is read from the spaces' virtual disk interfaces.
         /// </summary>
         /// <param name="disks">Existing disk objects to use for member references.</param>
         /// <returns>The non-primordial pools reported by Spaceport, or an empty list elsewhere.</returns>
@@ -203,13 +203,14 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(disks));
             }
 
-            var pools = WindowsStorageSpacesPoolReader.Enumerate(disks, OS.IsWindows() ? StorageIoControlFactory.Create() : null);
+            var ioControl = OS.IsWindows() ? StorageIoControlFactory.Create() : null;
+            var pools = WindowsStorageSpacesPoolReader.Enumerate(disks, ioControl);
 
-            if (OS.IsWindows())
+            if (ioControl != null)
             {
-                // The already detected virtual disk exposes the space GUID as its serial.
-                // Read its mounted volume capacities without enumerating another disk.
-                WindowsStorageSpaceVolumeReader.Populate(pools, disks);
+                // Resolve each space's current virtual disk number and volumes independently
+                // of the caller's disk snapshot, which may be empty or out of date.
+                WindowsStorageSpaceVolumeReader.Populate(pools, ioControl);
             }
 
             return pools;

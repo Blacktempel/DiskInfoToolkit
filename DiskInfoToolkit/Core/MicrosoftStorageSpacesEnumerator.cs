@@ -81,30 +81,6 @@ namespace DiskInfoToolkit.Core
             }
         }
 
-        public static void RemoveStorageSpacesAggregates(List<StorageDevice> result)
-        {
-            var devicesToRemove = new HashSet<StorageDevice>();
-
-            foreach (var device in result)
-            {
-                if (device.BusType != StorageBusType.Spaces)
-                {
-                    continue;
-                }
-
-                if (!LooksLikeVirtualOrAggregateDisk(device))
-                {
-                    continue;
-                }
-
-                ProbeTraceRecorder.Add(device, "Logical Storage Spaces device removed from result list because direct PhysicalDrive member disks were discovered.");
-
-                devicesToRemove.Add(device);
-            }
-
-            result.RemoveAll(devicesToRemove.Contains);
-        }
-
         #endregion
 
         #region Private

@@ -8,6 +8,7 @@
 
 using DiskInfoToolkit.Core;
 using DiskInfoToolkit.Models;
+using DiskInfoToolkit.Monitoring;
 using Microsoft.Win32.SafeHandles;
 
 namespace DiskInfoToolkit.Tests.Core
@@ -92,6 +93,76 @@ namespace DiskInfoToolkit.Tests.Core
             CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, device.PredictFailureVendorData);
         }
 
+        /// <summary>
+        /// Limits Storage Spaces virtual disks to standard disk metadata and suppresses hardware probes.
+        /// </summary>
+        [TestMethod]
+        public void StorageSpaceUsesDiskMetadataWithoutHardwareProbes()
+        {
+            var device = new StorageDevice
+            {
+                DevicePath = @"\\?\synthetic-storage-space",
+                DisplayName = "Virtual Disk",
+                IsRemovable = true
+            };
+
+            device.Controller.Service = "stornvme";
+
+            var ioControl = new CountingStorageIoControl
+            {
+                DescriptorBusType = StorageBusType.Spaces
+            };
+
+            StorageDetectionEngine.AttachStandardStorageProperties(device, ioControl);
+            StorageDetectionEngine.ApplyDeviceFilters(device);
+            StorageDetectionEngine.SelectProbeStrategy(device);
+            StorageProbeDispatcher.Probe(device, ioControl);
+            StorageProbeDispatcher.Probe(device, ioControl, false);
+
+            Assert.AreEqual(StorageBusType.Spaces, device.BusType);
+            Assert.AreEqual(StorageTransportKind.Virtual, device.TransportKind);
+            Assert.AreEqual(ProbeStrategy.None, device.ProbeStrategy);
+
+            Assert.IsFalse(device.IsFiltered);
+
+            Assert.AreEqual((uint)42, device.StorageDeviceNumber);
+            Assert.AreEqual((ulong)4096, device.DiskSizeBytes);
+            Assert.AreEqual(4, ioControl.TotalIoCount); //open, descriptor, disk number, geometry
+            Assert.AreEqual(0, ioControl.SmartVersionCount);
+            Assert.AreEqual(0, ioControl.PredictFailureCount);
+
+            Assert.IsFalse(device.SupportsSmart);
+
+            Assert.IsNull(device.PredictsFailure);
+
+            Assert.IsFalse(StorageMediaPresenceMonitor.IsMediaWatchCandidate(device));
+        }
+
+        /// <summary>
+        /// Preserves a Storage Spaces classification when its descriptor lacks a bus type.
+        /// </summary>
+        [TestMethod]
+        public void StorageSpaceClassificationSurvivesUnknownDescriptorBusType()
+        {
+            var device = new StorageDevice
+            {
+                DevicePath = @"\\?\synthetic-storage-space",
+                BusType = StorageBusType.Spaces
+            };
+
+            var ioControl = new CountingStorageIoControl
+            {
+                DescriptorBusType = StorageBusType.Unknown
+            };
+
+            StorageDetectionEngine.AttachStandardStorageProperties(device, ioControl);
+
+            Assert.AreEqual(StorageBusType.Spaces, device.BusType);
+            Assert.AreEqual(4, ioControl.TotalIoCount);
+            Assert.AreEqual(0, ioControl.SmartVersionCount);
+            Assert.AreEqual(0, ioControl.PredictFailureCount);
+        }
+
         [TestMethod]
         public void ProbeRefreshSkipsSmartOperationsAndPreservesSmartStateWhenDisabled()
         {
@@ -163,6 +234,8 @@ namespace DiskInfoToolkit.Tests.Core
 
             public int TotalIoCount { get; private set; }
 
+            public StorageBusType DescriptorBusType { get; set; } = StorageBusType.Sata;
+
             #endregion
 
             #region Public
@@ -191,7 +264,7 @@ namespace DiskInfoToolkit.Tests.Core
                     ProductID = "Updated Product",
                     ProductRevision = "1.0",
                     SerialNumber = "UPDATED-SERIAL",
-                    BusType = StorageBusType.Sata
+                    BusType = DescriptorBusType
                 };
                 return true;
             }

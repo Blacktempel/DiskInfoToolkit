@@ -9,6 +9,7 @@
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace DiskInfoToolkit.Native
 {
@@ -45,6 +46,17 @@ namespace DiskInfoToolkit.Native
         [DllImport(DLL_NAME, CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetDiskFreeSpaceEx(string directoryName, out ulong freeBytesAvailableToCaller, out ulong totalNumberOfBytes, out ulong totalNumberOfFreeBytes);
+
+        [DllImport(DLL_NAME, CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr FindFirstVolume(StringBuilder volumeName, int bufferLength);
+
+        [DllImport(DLL_NAME, CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool FindNextVolume(IntPtr findHandle, StringBuilder volumeName, int bufferLength);
+
+        [DllImport(DLL_NAME, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool FindVolumeClose(IntPtr findHandle);
 
         [DllImport(DLL_NAME, SetLastError = true)]
         public static extern bool SetFilePointerEx(SafeFileHandle device, long liDistanceToMove,

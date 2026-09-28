@@ -114,6 +114,12 @@ namespace DiskInfoToolkit.Monitoring
                 return false;
             }
 
+            if (device.BusType == StorageBusType.Spaces)
+            {
+                //A virtual Storage Space is fixed media; a failed media check must not hide it.
+                return false;
+            }
+
             if (device.TransportKind == StorageTransportKind.Sd || device.TransportKind == StorageTransportKind.Mmc)
             {
                 return true;

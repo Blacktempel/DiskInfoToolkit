@@ -65,10 +65,10 @@ namespace DiskInfoToolkit.Core
                 MapParentControllerProperties(device, node);
                 ApplyControllerIdNames(device);
                 ClassifyController(device);
-                ApplyDeviceFilters(device);
 
                 //Fetch standard storage properties via Storage IOCTLs
                 AttachStandardStorageProperties(device, _ioControl);
+                ApplyDeviceFilters(device);
                 SelectProbeStrategy(device);
 
                 result.Add(device);
@@ -89,8 +89,6 @@ namespace DiskInfoToolkit.Core
 
             if (detectedMSStorageSpaces.Count > 0)
             {
-                MicrosoftStorageSpacesEnumerator.RemoveStorageSpacesAggregates(result);
-
                 foreach (var storageSpacesDevice in detectedMSStorageSpaces)
                 {
                     result.Add(storageSpacesDevice);
@@ -124,6 +122,15 @@ namespace DiskInfoToolkit.Core
 
         internal static void SelectProbeStrategy(StorageDevice device)
         {
+            if (device.BusType == StorageBusType.Spaces)
+            {
+                //A Storage Space exposes a disk interface for capacity and partitions, but
+                //ATA/SCSI/NVMe probes would address the virtual disk instead of its members.
+                device.TransportKind = StorageTransportKind.Virtual;
+                device.ProbeStrategy = ProbeStrategy.None;
+                return;
+            }
+
             string service = device.Controller.Service ?? string.Empty;
             string controllerClass = device.Controller.Class ?? string.Empty;
 
@@ -250,20 +257,21 @@ namespace DiskInfoToolkit.Core
                     device.ProductName     = StringUtil.FirstNonEmpty(descriptor.ProductID, device.ProductName, string.Empty);
                     device.ProductRevision = StringUtil.FirstNonEmpty(descriptor.ProductRevision, device.ProductRevision, string.Empty);
                     device.SerialNumber    = StringUtil.FirstNonEmpty(descriptor.SerialNumber, device.SerialNumber, string.Empty);
-                    device.BusType         = descriptor.BusType;
+                    device.BusType         = descriptor.BusType != StorageBusType.Unknown ? descriptor.BusType : device.BusType;
                     device.IsRemovable     = descriptor.RemovableMedia;
                 }
 
-                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.StorageAdapterDescriptor)
-                 && ioControl.TryGetStorageAdapterDescriptor(handle, out var adapterDescriptor)
-                 && device.BusType == StorageBusType.Unknown)
+                if (device.BusType == StorageBusType.Unknown
+                 && ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.StorageAdapterDescriptor)
+                 && ioControl.TryGetStorageAdapterDescriptor(handle, out var adapterDescriptor))
                 {
                     RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.StorageAdapterDescriptor);
 
                     device.BusType = adapterDescriptor.BusType;
                 }
 
-                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.ScsiAddress)
+                if (device.BusType != StorageBusType.Spaces
+                 && ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.ScsiAddress)
                  && ioControl.TryGetScsiAddress(handle, out var scsiAddress))
                 {
                     RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.ScsiAddress);
@@ -274,7 +282,8 @@ namespace DiskInfoToolkit.Core
                     device.Scsi.Lun        = scsiAddress.Lun;
                 }
 
-                if (refreshSmartData
+                if (device.BusType != StorageBusType.Spaces
+                 && refreshSmartData
                  && ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.SmartVersion)
                  && ioControl.TryGetSmartVersion(handle, out var smartVersionInfo))
                 {
@@ -300,7 +309,8 @@ namespace DiskInfoToolkit.Core
                     device.DiskSizeBytes = geometryInfo.DiskSize;
                 }
 
-                if (refreshSmartData
+                if (device.BusType != StorageBusType.Spaces
+                 && refreshSmartData
                  && ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.PredictFailure)
                  && ioControl.TryGetPredictFailure(handle, out var predictFailureInfo))
                 {
@@ -310,7 +320,8 @@ namespace DiskInfoToolkit.Core
                     device.PredictFailureVendorData = predictFailureInfo.VendorSpecificData ?? [];
                 }
 
-                if (ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.SffDiskDeviceProtocol)
+                if (device.BusType != StorageBusType.Spaces
+                 && ShouldExecuteStandardPropertyOperation(device, StorageProbeOperation.SffDiskDeviceProtocol)
                  && ioControl.TryGetSffDiskDeviceProtocol(handle, out var protocolType))
                 {
                     RecordStandardPropertyOperationSuccess(device, StorageProbeOperation.SffDiskDeviceProtocol);
@@ -411,6 +422,15 @@ namespace DiskInfoToolkit.Core
             device.Controller.Name       = StringUtil.FirstNonEmpty(node.ParentDisplayName, StorageTextConstants.DriveController);
             device.Controller.HardwareID = StringUtil.FirstNonEmpty(node.ParentHardwareID, node.HardwareID, string.Empty);
             device.Controller.Identifier = node.ControllerIdentifier ?? string.Empty;
+
+            //The Spaceport disk instance ID is available before the descriptor is read.
+            //Keep its virtual classification if that descriptor temporarily fails.
+            if (device.DeviceInstanceID.StartsWith(WindowsStorageSpaceVolumeReader.StorageSpaceInstancePrefix, StringComparison.OrdinalIgnoreCase)
+             && Guid.TryParse(device.DeviceInstanceID.Substring(WindowsStorageSpaceVolumeReader.StorageSpaceInstancePrefix.Length), out _))
+            {
+                device.BusType       = StorageBusType.Spaces;
+                device.TransportKind = StorageTransportKind.Virtual;
+            }
 
             VendorIDParser.TryParse(device.Controller.HardwareID, out var vendorId, out var deviceId, out var revision, out var isUsbStyle);
             device.Controller.VendorID             = vendorId;
@@ -628,8 +648,17 @@ namespace DiskInfoToolkit.Core
             }
         }
 
-        private static void ApplyDeviceFilters(StorageDevice device)
+        /// <summary>
+        /// Applies device filters after the storage bus type has been read.
+        /// </summary>
+        /// <param name="device">The disk to classify.</param>
+        internal static void ApplyDeviceFilters(StorageDevice device)
         {
+            if (device.BusType == StorageBusType.Spaces)
+            {
+                return;
+            }
+
             string display = device.DisplayName ?? string.Empty;
             if (display.StartsWith(StorageDetectionFilter.Drobo5D, StringComparison.OrdinalIgnoreCase))
             {

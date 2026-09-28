@@ -28,6 +28,14 @@ namespace DiskInfoToolkit.Core
                 throw new ArgumentNullException(nameof(device));
             }
 
+            if (device.BusType == StorageBusType.Spaces)
+            {
+                //The virtual disk has no individual SMART or protocol state. Its standard
+                //descriptor, disk number, geometry and partitions are read separately.
+                ProbeTraceRecorder.Add(device, "Storage Spaces virtual disk: hardware probes skipped.");
+                return;
+            }
+
             ProbeTraceRecorder.Add(device, $"Probe start: strategy={device.ProbeStrategy}, service={device.Controller.Service}, class={device.Controller.Class}");
 
             if (!refreshSmartData)
