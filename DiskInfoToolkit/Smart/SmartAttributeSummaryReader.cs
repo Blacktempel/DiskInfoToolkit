@@ -40,6 +40,10 @@ namespace DiskInfoToolkit.Smart
 
         private const byte NvmePowerOnHoursAttributeId = 0xEB;
 
+        private const ulong BytesPerGigabyte = 1000UL * 1000UL * 1000UL;
+
+        private const ulong BytesPerMiB = 1024UL * 1024UL;
+
         #endregion
 
         #region Public
@@ -145,7 +149,7 @@ namespace DiskInfoToolkit.Smart
             if (IsNvme(device, profile))
             {
                 var entry = FindAttribute(device, NvmeDataUnitsReadAttributeId);
-                return entry == null ? null : ConvertNvmeDataUnitsToGigabytes(entry.RawValue);
+                return entry == null ? null : ConvertNvmeDataUnitsToBytes(entry.RawValue);
             }
 
             var attribute = FindAttribute(device, 0xF2);
@@ -156,56 +160,56 @@ namespace DiskInfoToolkit.Smart
 
             if (profile == SmartAttributeProfile.Toshiba && settings.HostReadWriteUnit == SmartHostReadWriteUnit.UnitGigabytes)
             {
-                return GetRawUInt32(attribute);
+                return ConvertUnitsToBytes(GetRawUInt32(attribute), BytesPerGigabyte);
             }
 
             if (profile == SmartAttributeProfile.SiliconMotionCVC && settings.HostReadWriteUnit == SmartHostReadWriteUnit.UnitGigabytes)
             {
-                return GetRawUInt32(attribute);
+                return ConvertUnitsToBytes(GetRawUInt32(attribute), BytesPerGigabyte);
             }
 
             if (profile == SmartAttributeProfile.Intel
                 || profile == SmartAttributeProfile.Toshiba
                 || profile == SmartAttributeProfile.SiliconMotion)
             {
-                return Convert32MiBUnitsToGigabytes(attribute.RawValue);
+                return Convert32MiBUnitsToBytes(attribute.RawValue);
             }
 
             if (profile == SmartAttributeProfile.Samsung)
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, true, SmartHostReadWriteUnit.Unit512Bytes);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, true, SmartHostReadWriteUnit.Unit512Bytes);
             }
 
             if (profile == SmartAttributeProfile.JMicron60x
                 || profile == SmartAttributeProfile.JMicron61x
                 || profile == SmartAttributeProfile.JMicron66x)
             {
-                return ConvertHostUnitsToGigabytes(attribute, SmartHostReadWriteUnit.Unit512Bytes, false, SmartHostReadWriteUnit.Unit512Bytes);
+                return ConvertHostUnitsToBytes(attribute, SmartHostReadWriteUnit.Unit512Bytes, false, SmartHostReadWriteUnit.Unit512Bytes);
             }
 
             if (profile == SmartAttributeProfile.Plextor)
             {
-                return Convert32MiBUnitsToGigabytes(attribute.RawValue);
+                return Convert32MiBUnitsToBytes(attribute.RawValue);
             }
 
             if (IsSanDiskGbStyleProfile(profile) && settings.HostReadWriteUnit == SmartHostReadWriteUnit.UnitGigabytes)
             {
-                return attribute.RawValue;
+                return ConvertUnitsToBytes(attribute.RawValue, BytesPerGigabyte);
             }
 
             if (IsSanDiskBaseProfile(profile))
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unit512Bytes);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unit512Bytes);
             }
 
             if (profile == SmartAttributeProfile.SSD)
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unknown);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unknown);
             }
 
             if (UsesConfiguredHostUnits(profile))
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.UnitGigabytes);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.UnitGigabytes);
             }
 
             return null;
@@ -224,7 +228,7 @@ namespace DiskInfoToolkit.Smart
             if (IsNvme(device, profile))
             {
                 var entry = FindAttribute(device, NvmeDataUnitsWrittenAttributeId);
-                return entry == null ? null : ConvertNvmeDataUnitsToGigabytes(entry.RawValue);
+                return entry == null ? null : ConvertNvmeDataUnitsToBytes(entry.RawValue);
             }
 
             if (profile == SmartAttributeProfile.Ocz)
@@ -232,7 +236,7 @@ namespace DiskInfoToolkit.Smart
                 var ocz = FindAttribute(device, 0xE8);
                 if (ocz != null)
                 {
-                    return Convert512ByteUnitsToGigabytes(ocz.RawValue);
+                    return Convert512ByteUnitsToBytes(ocz.RawValue);
                 }
             }
 
@@ -241,7 +245,7 @@ namespace DiskInfoToolkit.Smart
                 var intel = FindAttribute(device, 0xE1);
                 if (intel != null)
                 {
-                    return Convert32MiBUnitsToGigabytes(intel.RawValue);
+                    return Convert32MiBUnitsToBytes(intel.RawValue);
                 }
             }
 
@@ -250,7 +254,7 @@ namespace DiskInfoToolkit.Smart
                 var intelDc = FindAttribute(device, 0xEB);
                 if (intelDc != null)
                 {
-                    return Convert32MiBUnitsToGigabytes(intelDc.RawValue);
+                    return Convert32MiBUnitsToBytes(intelDc.RawValue);
                 }
             }
 
@@ -259,7 +263,7 @@ namespace DiskInfoToolkit.Smart
                 var micron = FindAttribute(device, 0xF6);
                 if (micron != null)
                 {
-                    return Convert512ByteUnitsToGigabytes(micron.RawValue);
+                    return Convert512ByteUnitsToBytes(micron.RawValue);
                 }
             }
 
@@ -276,12 +280,12 @@ namespace DiskInfoToolkit.Smart
 
             if (profile == SmartAttributeProfile.Toshiba && settings.HostReadWriteUnit == SmartHostReadWriteUnit.UnitGigabytes)
             {
-                return GetRawUInt32(attribute);
+                return ConvertUnitsToBytes(GetRawUInt32(attribute), BytesPerGigabyte);
             }
 
             if (profile == SmartAttributeProfile.SiliconMotionCVC && settings.HostReadWriteUnit == SmartHostReadWriteUnit.UnitGigabytes)
             {
-                return GetRawUInt32(attribute);
+                return ConvertUnitsToBytes(GetRawUInt32(attribute), BytesPerGigabyte);
             }
 
             if (profile == SmartAttributeProfile.Intel
@@ -289,49 +293,49 @@ namespace DiskInfoToolkit.Smart
                 || profile == SmartAttributeProfile.Kioxia
                 || profile == SmartAttributeProfile.SiliconMotion)
             {
-                return Convert32MiBUnitsToGigabytes(attribute.RawValue);
+                return Convert32MiBUnitsToBytes(attribute.RawValue);
             }
 
             if (profile == SmartAttributeProfile.Samsung)
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, true, SmartHostReadWriteUnit.Unit512Bytes);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, true, SmartHostReadWriteUnit.Unit512Bytes);
             }
 
             if (profile == SmartAttributeProfile.Apacer)
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unit512Bytes);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unit512Bytes);
             }
 
             if (profile == SmartAttributeProfile.JMicron60x
                 || profile == SmartAttributeProfile.JMicron61x
                 || profile == SmartAttributeProfile.JMicron66x)
             {
-                return ConvertHostUnitsToGigabytes(attribute, SmartHostReadWriteUnit.Unit512Bytes, false, SmartHostReadWriteUnit.Unit512Bytes);
+                return ConvertHostUnitsToBytes(attribute, SmartHostReadWriteUnit.Unit512Bytes, false, SmartHostReadWriteUnit.Unit512Bytes);
             }
 
             if (profile == SmartAttributeProfile.Plextor)
             {
-                return Convert32MiBUnitsToGigabytes(attribute.RawValue);
+                return Convert32MiBUnitsToBytes(attribute.RawValue);
             }
 
             if (IsSanDiskGbStyleProfile(profile) && settings.HostReadWriteUnit == SmartHostReadWriteUnit.UnitGigabytes)
             {
-                return attribute.RawValue;
+                return ConvertUnitsToBytes(attribute.RawValue, BytesPerGigabyte);
             }
 
             if (IsSanDiskBaseProfile(profile))
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unit512Bytes);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unit512Bytes);
             }
 
             if (profile == SmartAttributeProfile.SSD)
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unknown);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.Unknown);
             }
 
             if (UsesConfiguredHostUnits(profile))
             {
-                return ConvertHostUnitsToGigabytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.UnitGigabytes);
+                return ConvertHostUnitsToBytes(attribute, settings.HostReadWriteUnit, false, SmartHostReadWriteUnit.UnitGigabytes);
             }
 
             return null;
@@ -357,7 +361,7 @@ namespace DiskInfoToolkit.Smart
                 var f1 = FindAttribute(device, 0xF1);
                 if (f1 != null)
                 {
-                    return Convert32MiBUnitsToGigabytes(f1.RawValue);
+                    return Convert32MiBUnitsToBytes(f1.RawValue);
                 }
             }
 
@@ -372,12 +376,12 @@ namespace DiskInfoToolkit.Smart
                     || profile == SmartAttributeProfile.SanDiskLenovoHelenVenus
                     || (IsSanDiskGbStyleProfile(profile) && settings.HostReadWriteUnit == SmartHostReadWriteUnit.UnitGigabytes))
                 {
-                    return GetRawUInt32(f9);
+                    return ConvertUnitsToBytes(GetRawUInt32(f9), BytesPerGigabyte);
                 }
 
                 if (profile == SmartAttributeProfile.OczVector)
                 {
-                    return f9.RawValue / 64UL / 1024UL;
+                    return ConvertUnitsToBytes(f9.RawValue, 16UL * 1024UL);
                 }
             }
 
@@ -393,10 +397,10 @@ namespace DiskInfoToolkit.Smart
                     ulong raw = GetRawUInt32(e9);
                     if (settings.NandWriteUnit == SmartNandWriteUnit.Unit1MiB)
                     {
-                        return raw / 1024UL;
+                        return ConvertUnitsToBytes(raw, BytesPerMiB);
                     }
 
-                    return raw;
+                    return ConvertUnitsToBytes(raw, BytesPerGigabyte);
                 }
 
                 if (profile == SmartAttributeProfile.Plextor
@@ -412,7 +416,7 @@ namespace DiskInfoToolkit.Smart
                     || profile == SmartAttributeProfile.Ymtc
                     || profile == SmartAttributeProfile.SiliconMotionCVC)
                 {
-                    return GetRawUInt32(e9);
+                    return ConvertUnitsToBytes(GetRawUInt32(e9), BytesPerGigabyte);
                 }
 
                 if (profile == SmartAttributeProfile.JMicron60x
@@ -420,14 +424,14 @@ namespace DiskInfoToolkit.Smart
                     || profile == SmartAttributeProfile.JMicron66x
                     || profile == SmartAttributeProfile.AdataIndustrial)
                 {
-                    return Convert512ByteUnitsToGigabytes(e9.RawValue);
+                    return Convert512ByteUnitsToBytes(e9.RawValue);
                 }
 
                 if (profile == SmartAttributeProfile.Maxiotek)
                 {
                     return settings.HostReadWriteUnit == SmartHostReadWriteUnit.Unit512Bytes
-                        ? Convert512ByteUnitsToGigabytes(e9.RawValue)
-                        : GetRawUInt32(e9);
+                        ? Convert512ByteUnitsToBytes(e9.RawValue)
+                        : ConvertUnitsToBytes(GetRawUInt32(e9), BytesPerGigabyte);
                 }
             }
 
@@ -438,7 +442,7 @@ namespace DiskInfoToolkit.Smart
                     || profile == SmartAttributeProfile.Seagate
                     || (profile == SmartAttributeProfile.SKhynix && settings.HostReadWriteUnit == SmartHostReadWriteUnit.UnitGigabytes))
                 {
-                    return GetRawUInt32(ea);
+                    return ConvertUnitsToBytes(GetRawUInt32(ea), BytesPerGigabyte);
                 }
             }
 
@@ -447,7 +451,7 @@ namespace DiskInfoToolkit.Smart
             {
                 if (profile == SmartAttributeProfile.Micron)
                 {
-                    return (f5.RawValue * 8UL) / 1024UL / 1024UL;
+                    return ConvertUnitsToBytes(f5.RawValue, 8UL * 1024UL);
                 }
 
                 if (profile == SmartAttributeProfile.MicronMU03
@@ -455,25 +459,25 @@ namespace DiskInfoToolkit.Smart
                     || profile == SmartAttributeProfile.SiliconMotion
                     || profile == SmartAttributeProfile.Scy)
                 {
-                    return f5.RawValue / 32UL;
+                    return Convert32MiBUnitsToBytes(f5.RawValue);
                 }
 
                 if (profile == SmartAttributeProfile.Recadata)
                 {
-                    return f5.RawValue;
+                    return ConvertUnitsToBytes(f5.RawValue, BytesPerGigabyte);
                 }
             }
 
             var fa = FindAttribute(device, 0xFA);
             if (fa != null && profile == SmartAttributeProfile.Realtek)
             {
-                return GetRawUInt32(fa);
+                return ConvertUnitsToBytes(GetRawUInt32(fa), BytesPerGigabyte);
             }
 
             return null;
         }
 
-        public static ulong? GetGBytesErased(StorageDevice device)
+        public static ulong? GetBytesErased(StorageDevice device)
         {
             if (device == null)
             {
@@ -487,7 +491,7 @@ namespace DiskInfoToolkit.Smart
             }
 
             var entry = FindAttribute(device, 0x64);
-            return entry == null ? null : GetRawUInt32(entry);
+            return entry == null ? null : ConvertUnitsToBytes(GetRawUInt32(entry), BytesPerGigabyte);
         }
 
         public static int? GetWearLevelingCount(StorageDevice device)
@@ -953,7 +957,7 @@ namespace DiskInfoToolkit.Smart
             return entry == null ? 0UL : (entry.RawValue & 0xFFFFFFFFUL);
         }
 
-        private static ulong? ConvertHostUnitsToGigabytes(
+        private static ulong? ConvertHostUnitsToBytes(
             SmartAttributeEntry entry,
             SmartHostReadWriteUnit unit,
             bool preferUInt32ForGigabytes,
@@ -968,15 +972,15 @@ namespace DiskInfoToolkit.Smart
             switch (effectiveUnit)
             {
                 case SmartHostReadWriteUnit.Unit512Bytes:
-                    return Convert512ByteUnitsToGigabytes(entry.RawValue);
+                    return Convert512ByteUnitsToBytes(entry.RawValue);
                 case SmartHostReadWriteUnit.Unit1MiB:
-                    return entry.RawValue / 1024UL;
+                    return ConvertUnitsToBytes(entry.RawValue, BytesPerMiB);
                 case SmartHostReadWriteUnit.Unit16MiB:
-                    return entry.RawValue / 64UL;
+                    return ConvertUnitsToBytes(entry.RawValue, 16UL * BytesPerMiB);
                 case SmartHostReadWriteUnit.Unit32MiB:
-                    return entry.RawValue / 32UL;
+                    return Convert32MiBUnitsToBytes(entry.RawValue);
                 case SmartHostReadWriteUnit.UnitGigabytes:
-                    return preferUInt32ForGigabytes ? GetRawUInt32(entry) : entry.RawValue;
+                    return ConvertUnitsToBytes(preferUInt32ForGigabytes ? GetRawUInt32(entry) : entry.RawValue, BytesPerGigabyte);
                 default:
                     return null;
             }
@@ -1038,24 +1042,29 @@ namespace DiskInfoToolkit.Smart
                 || profile == SmartAttributeProfile.SanDiskCloud;
         }
 
-        private static ulong? ConvertNvmeDataUnitsToGigabytes(ulong rawValue)
+        private static ulong? ConvertNvmeDataUnitsToBytes(ulong rawValue)
         {
-            if (rawValue > (ulong.MaxValue / 1000UL))
+            return ConvertUnitsToBytes(rawValue, 1000UL * 512UL);
+        }
+
+        private static ulong? Convert512ByteUnitsToBytes(ulong rawValue)
+        {
+            return ConvertUnitsToBytes(rawValue, 512UL);
+        }
+
+        private static ulong? Convert32MiBUnitsToBytes(ulong rawValue)
+        {
+            return ConvertUnitsToBytes(rawValue, 32UL * BytesPerMiB);
+        }
+
+        private static ulong? ConvertUnitsToBytes(ulong rawValue, ulong bytesPerUnit)
+        {
+            if (rawValue > ulong.MaxValue / bytesPerUnit)
             {
                 return null;
             }
 
-            return (rawValue * 1000UL) >> 21;
-        }
-
-        private static ulong Convert512ByteUnitsToGigabytes(ulong rawValue)
-        {
-            return rawValue / 2UL / 1024UL / 1024UL;
-        }
-
-        private static ulong Convert32MiBUnitsToGigabytes(ulong rawValue)
-        {
-            return rawValue / 32UL;
+            return rawValue * bytesPerUnit;
         }
 
         private static int? KelvinToCelsius(ushort kelvin)

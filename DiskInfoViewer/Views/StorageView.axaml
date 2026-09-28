@@ -121,14 +121,14 @@
 				<TextBox Grid.Row="0" Grid.Column="4" IsReadOnly="True" Text="{Binding Storage.ControllerDeviceName}"
 						 IsVisible="{Binding Storage.ControllerDeviceName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
-				<TextBlock Grid.Row="1" Grid.Column="3" Text="Total reads"
+				<TextBlock Grid.Row="1" Grid.Column="3" Text="Total reads in bytes"
 						   IsVisible="{Binding Storage.HostReads, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-				<TextBox Grid.Row="1" Grid.Column="4" IsReadOnly="True" Text="{Binding Storage.HostReads}"
+				<TextBox Grid.Row="1" Grid.Column="4" IsReadOnly="True" Text="{Binding Storage.HostReads, Mode=OneWay, StringFormat='{}{0:N0}'}"
 						 IsVisible="{Binding Storage.HostReads, Converter={x:Static ObjectConverters.IsNotNull}}"/>
 
-				<TextBlock Grid.Row="2" Grid.Column="3" Text="Total writes"
+				<TextBlock Grid.Row="2" Grid.Column="3" Text="Total writes in bytes"
 						   IsVisible="{Binding Storage.HostWrites, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-				<TextBox Grid.Row="2" Grid.Column="4" IsReadOnly="True" Text="{Binding Storage.HostWrites}"
+				<TextBox Grid.Row="2" Grid.Column="4" IsReadOnly="True" Text="{Binding Storage.HostWrites, Mode=OneWay, StringFormat='{}{0:N0}'}"
 						 IsVisible="{Binding Storage.HostWrites, Converter={x:Static ObjectConverters.IsNotNull}}"/>
 
 				<TextBlock Grid.Row="3" Grid.Column="3" Text="Power on count"

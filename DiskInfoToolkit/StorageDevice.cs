@@ -276,7 +276,7 @@ namespace DiskInfoToolkit
         }
 
         /// <summary>
-        /// Gets the total host reads value when available.
+        /// Gets the total host reads in bytes when available.
         /// </summary>
         public ulong? HostReads
         {
@@ -284,7 +284,7 @@ namespace DiskInfoToolkit
         }
 
         /// <summary>
-        /// Gets the total host writes value when available.
+        /// Gets the total host writes in bytes when available.
         /// </summary>
         public ulong? HostWrites
         {
@@ -293,7 +293,7 @@ namespace DiskInfoToolkit
 
 
         /// <summary>
-        /// Gets the total NAND writes in gigabytes when available.
+        /// Gets the total NAND writes in bytes when available.
         /// </summary>
         public ulong? NandWrites
         {
@@ -301,11 +301,11 @@ namespace DiskInfoToolkit
         }
 
         /// <summary>
-        /// Gets the total gigabytes erased when available.
+        /// Gets the total bytes erased when available.
         /// </summary>
-        public ulong? GBytesErased
+        public ulong? BytesErased
         {
-            get { return SmartAttributeSummaryReader.GetGBytesErased(this); }
+            get { return SmartAttributeSummaryReader.GetBytesErased(this); }
         }
 
         /// <summary>
