@@ -7,6 +7,7 @@
  */
 
 using DiskInfoToolkit.Core;
+using DiskInfoToolkit.Devices;
 
 namespace DiskInfoToolkit.Probes
 {

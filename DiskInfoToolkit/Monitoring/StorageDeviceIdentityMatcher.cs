@@ -6,6 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Utilities;
 using System.Globalization;
 

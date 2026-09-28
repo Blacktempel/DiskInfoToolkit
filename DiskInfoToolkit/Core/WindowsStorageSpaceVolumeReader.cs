@@ -8,8 +8,10 @@
 
 using BlackSharp.Core.Interop.Windows.Native;
 using DiskInfoToolkit.Constants;
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Pnp;
+using DiskInfoToolkit.StorageSpaces;
 using Microsoft.Win32.SafeHandles;
 using System.ComponentModel;
 using System.Text;

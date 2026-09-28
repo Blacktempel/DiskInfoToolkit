@@ -7,6 +7,8 @@
  */
 
 using DiskInfoToolkit.Core;
+using DiskInfoToolkit.Devices;
+using DiskInfoToolkit.StorageSpaces;
 using System.Text;
 
 namespace DiskInfoToolkit.Tests.Core

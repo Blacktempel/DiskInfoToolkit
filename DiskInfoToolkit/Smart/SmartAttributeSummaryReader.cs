@@ -6,6 +6,8 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using DiskInfoToolkit.Devices;
+
 namespace DiskInfoToolkit.Smart
 {
     internal static class SmartAttributeSummaryReader

@@ -8,6 +8,8 @@
 
 using BlackSharp.Core.Interop.Windows;
 using DiskInfoToolkit.Constants;
+using DiskInfoToolkit.Devices;
+using DiskInfoToolkit.StorageSpaces;
 using Microsoft.Win32.SafeHandles;
 using System.Text;
 using OS = BlackSharp.Core.Platform.OperatingSystem;

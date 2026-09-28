@@ -9,6 +9,7 @@
 using BlackSharp.Core.Interop.Windows.Mutexes;
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Core;
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Globals;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;

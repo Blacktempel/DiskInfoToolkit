@@ -6,7 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.StorageSpaces
 {
     /// <summary>
     /// An operational status of a Microsoft Storage Spaces virtual disk (storage space).

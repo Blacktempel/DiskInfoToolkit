@@ -6,6 +6,8 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using DiskInfoToolkit.Devices;
+
 namespace DiskInfoToolkit.Probes
 {
     public static class NvmeNamespaceParser

@@ -9,7 +9,7 @@
 using System.Globalization;
 using System.Resources;
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Localization
 {
     /// <summary>
     /// Represents the resource manager localized text provider.

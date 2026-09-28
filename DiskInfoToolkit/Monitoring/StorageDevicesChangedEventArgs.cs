@@ -6,7 +6,9 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+using DiskInfoToolkit.Devices;
+
+namespace DiskInfoToolkit.Monitoring
 {
     /// <summary>
     /// Defines the event arguments for storage devices changed events.

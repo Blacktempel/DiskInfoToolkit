@@ -6,13 +6,15 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Devices
 {
     /// <summary>
-    /// Defines a contract for providing localized or context-specific text based on a key.
+    /// Defines storage protocol type values.
     /// </summary>
-    public interface ILocalizedTextProvider
+    public enum StorageProtocolType
     {
-        string GetText(string textKey);
+        Unknown = 0,
+        SecureDigital = 1,
+        MultiMediaCard = 2
     }
 }

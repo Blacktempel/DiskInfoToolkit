@@ -41,6 +41,8 @@ Pull requests are welcome. Please include as much information as possible.
 
 **Sample code**
 ```C#
+using DiskInfoToolkit.Monitoring;
+
 static class Program
 {
     static void Main(string[] args)

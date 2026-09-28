@@ -6,7 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Devices
 {
     /// <summary>
     /// Represents storage scsi info.

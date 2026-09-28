@@ -7,7 +7,7 @@
  */
 
 using CommunityToolkit.Mvvm.ComponentModel;
-using DiskInfoToolkit;
+using DiskInfoToolkit.Smart;
 using DiskInfoViewer.ViewModels;
 
 namespace DiskInfoViewer.ModelAbstraction

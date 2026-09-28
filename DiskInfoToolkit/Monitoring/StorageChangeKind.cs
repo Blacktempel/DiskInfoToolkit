@@ -6,18 +6,15 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Monitoring
 {
     /// <summary>
-    /// Defines probe strategy values.
+    /// Defines storage change kind values.
     /// </summary>
-    public enum ProbeStrategy
+    public enum StorageChangeKind
     {
-        None,
-        GenericStorageProbe,
-        PciNvmeProbe,
-        UsbProbe,
-        SdMmcProbe,
-        RaidProbe
+        Added,
+        Removed,
+        Updated
     }
 }

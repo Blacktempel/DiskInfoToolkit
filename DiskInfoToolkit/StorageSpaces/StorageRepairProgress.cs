@@ -6,7 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.StorageSpaces
 {
     /// <summary>
     /// Progress counters for a running Microsoft Storage Spaces repair task.

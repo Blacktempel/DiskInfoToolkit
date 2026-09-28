@@ -7,9 +7,11 @@
  */
 
 using DiskInfoToolkit.Constants;
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Logging;
 using DiskInfoToolkit.PCI;
 using DiskInfoToolkit.Pnp;
+using DiskInfoToolkit.Probes;
 using DiskInfoToolkit.Usb;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;

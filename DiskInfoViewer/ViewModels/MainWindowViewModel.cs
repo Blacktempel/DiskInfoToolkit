@@ -11,6 +11,7 @@ using BlackSharp.Core.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DiskInfoToolkit;
+using DiskInfoToolkit.Monitoring;
 
 namespace DiskInfoViewer.ViewModels
 {

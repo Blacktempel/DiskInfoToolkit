@@ -6,7 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Smart
 {
     /// <summary>
     /// Defines the summarized SMART health status of a storage device.

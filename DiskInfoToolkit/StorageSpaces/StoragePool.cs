@@ -6,9 +6,10 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using DiskInfoToolkit.Devices;
 using System.Collections.ObjectModel;
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.StorageSpaces
 {
     /// <summary>
     /// A Microsoft Storage Spaces pool. Member devices are references to the supplied disk list;

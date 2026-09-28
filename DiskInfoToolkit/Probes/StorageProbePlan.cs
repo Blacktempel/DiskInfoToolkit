@@ -6,10 +6,10 @@
  * Copyright (c) 2026 Florian K.
  */
 
-using DiskInfoToolkit.Probes;
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Smart;
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Probes
 {
     /// <summary>
     /// Stores the successful probe operations for a storage device.

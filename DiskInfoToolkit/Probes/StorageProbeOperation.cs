@@ -6,7 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Probes
 {
     /// <summary>
     /// Defines individual probe operations that can provide disk data.

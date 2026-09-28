@@ -7,6 +7,7 @@
  */
 
 using DiskInfoToolkit.Core;
+using DiskInfoToolkit.StorageSpaces;
 
 namespace DiskInfoToolkit.Tests.Core
 {

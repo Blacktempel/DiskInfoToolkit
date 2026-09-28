@@ -6,9 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
-using DiskInfoToolkit.Smart;
-
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Smart
 {
     /// <summary>
     /// Represents a SMART attribute entry.

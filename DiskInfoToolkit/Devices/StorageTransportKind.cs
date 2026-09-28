@@ -6,15 +6,23 @@
  * Copyright (c) 2026 Florian K.
  */
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Devices
 {
     /// <summary>
-    /// Defines disk partition style values.
+    /// Defines storage transport kind values.
     /// </summary>
-    public enum DiskPartitionStyle
+    public enum StorageTransportKind
     {
-        Mbr = 0,
-        Gpt = 1,
-        Raw = 2
+        Unknown,
+        Ata,
+        Scsi,
+        Nvme,
+        Usb,
+        Sd,
+        Mmc,
+        Raid,
+        Sas,
+        Ahci,
+        Virtual
     }
 }

@@ -8,6 +8,8 @@
 
 using BlackSharp.Core.Logging;
 using DiskInfoToolkit;
+using DiskInfoToolkit.Devices;
+using DiskInfoToolkit.Monitoring;
 using System.Collections;
 using System.Diagnostics;
 using System.Reflection;

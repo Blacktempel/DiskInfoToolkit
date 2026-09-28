@@ -8,7 +8,7 @@
 
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using DiskInfoToolkit;
+using DiskInfoToolkit.Smart;
 using System.Globalization;
 
 namespace DiskInfoViewer.Converter

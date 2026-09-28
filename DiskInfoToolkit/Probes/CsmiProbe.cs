@@ -8,7 +8,9 @@
 
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Core;
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Interop;
+using DiskInfoToolkit.Smart;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Globalization;

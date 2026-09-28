@@ -6,9 +6,10 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using DiskInfoToolkit.Devices;
 using System.Collections.ObjectModel;
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.StorageSpaces
 {
     /// <summary>
     /// A summary derived from the complete, on-demand extent table of a storage space.

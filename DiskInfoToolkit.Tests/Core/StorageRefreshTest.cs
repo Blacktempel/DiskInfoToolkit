@@ -7,8 +7,11 @@
  */
 
 using DiskInfoToolkit.Core;
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Models;
 using DiskInfoToolkit.Monitoring;
+using DiskInfoToolkit.Probes;
+using DiskInfoToolkit.Smart;
 using Microsoft.Win32.SafeHandles;
 
 namespace DiskInfoToolkit.Tests.Core

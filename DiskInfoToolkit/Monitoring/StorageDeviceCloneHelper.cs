@@ -6,6 +6,10 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using DiskInfoToolkit.Devices;
+using DiskInfoToolkit.Partitions;
+using DiskInfoToolkit.Probes;
+using DiskInfoToolkit.Smart;
 using System.Reflection;
 
 namespace DiskInfoToolkit.Monitoring

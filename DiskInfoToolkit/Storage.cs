@@ -8,9 +8,14 @@
 
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Core;
+using DiskInfoToolkit.Devices;
+using DiskInfoToolkit.Localization;
 using DiskInfoToolkit.Monitoring;
 using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Partitions;
+using DiskInfoToolkit.Probes;
+using DiskInfoToolkit.Smart;
+using DiskInfoToolkit.StorageSpaces;
 using Microsoft.Win32.SafeHandles;
 using System.Globalization;
 using System.Reflection;

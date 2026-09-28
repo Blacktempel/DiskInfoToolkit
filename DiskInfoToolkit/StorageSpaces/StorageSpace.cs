@@ -8,7 +8,7 @@
 
 using System.Collections.ObjectModel;
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.StorageSpaces
 {
     /// <summary>
     /// A virtual disk (storage space) created within a Microsoft Storage Spaces pool.

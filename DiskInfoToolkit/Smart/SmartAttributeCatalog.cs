@@ -6,6 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using DiskInfoToolkit.Localization;
 using DiskInfoToolkit.Utilities;
 
 namespace DiskInfoToolkit.Smart

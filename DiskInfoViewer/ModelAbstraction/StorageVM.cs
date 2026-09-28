@@ -10,6 +10,8 @@ using Avalonia.Threading;
 using BlackSharp.Core.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
 using DiskInfoToolkit;
+using DiskInfoToolkit.Devices;
+using DiskInfoToolkit.Smart;
 using DiskInfoViewer.ViewModels;
 using System.Collections.ObjectModel;
 

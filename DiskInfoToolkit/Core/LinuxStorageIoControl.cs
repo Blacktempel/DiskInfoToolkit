@@ -7,6 +7,7 @@
  */
 
 using DiskInfoToolkit.Constants;
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Interop;
 using DiskInfoToolkit.Interop.Linux;
 using DiskInfoToolkit.Models;

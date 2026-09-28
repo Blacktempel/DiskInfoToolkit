@@ -8,7 +8,7 @@
 
 using DiskInfoToolkit.Constants;
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Devices
 {
     /// <summary>
     /// Represents the storage controller info.

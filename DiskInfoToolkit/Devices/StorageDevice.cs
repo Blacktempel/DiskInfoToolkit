@@ -8,10 +8,12 @@
 
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Monitoring;
+using DiskInfoToolkit.Partitions;
+using DiskInfoToolkit.Probes;
 using DiskInfoToolkit.Smart;
 using DiskInfoToolkit.Utilities;
 
-namespace DiskInfoToolkit
+namespace DiskInfoToolkit.Devices
 {
     /// <summary>
     /// Represents a storage device.
