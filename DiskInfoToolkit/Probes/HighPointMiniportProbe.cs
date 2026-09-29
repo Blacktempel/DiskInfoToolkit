@@ -10,7 +10,6 @@ using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Core;
 using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Interop;
-using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
@@ -20,10 +19,19 @@ using OS = BlackSharp.Core.Platform.OperatingSystem;
 
 namespace DiskInfoToolkit.Probes
 {
+    /// <summary>
+    /// Reads storage information through a HighPoint miniport controller.
+    /// </summary>
     internal static class HighPointMiniportProbe
     {
         #region Public
 
+        /// <summary>
+        /// Attempts to populate a storage device from a HighPoint controller.
+        /// </summary>
+        /// <param name="device">The device to update.</param>
+        /// <param name="ioControl">The device control implementation used for requests.</param>
+        /// <returns>Whether HighPoint data was read.</returns>
         public static bool TryPopulate(StorageDevice device, IStorageIoControl ioControl)
         {
             if (device == null || ioControl == null || !OS.IsWindows())
@@ -39,8 +47,11 @@ namespace DiskInfoToolkit.Probes
 
         #endregion
 
-        #region Private
+        #region Nested Types
 
+        /// <summary>
+        /// Owns the controller handles and request state for one HighPoint probe session.
+        /// </summary>
         private sealed class HighPointMiniportSession : IDisposable
         {
             #region Constructor
@@ -1661,9 +1672,9 @@ namespace DiskInfoToolkit.Probes
 
                 var response = (byte[])request.Clone();
 
-                if (!Kernel32Native.DeviceIoControl(handle, IoControlScsiMiniport, request, request.Length, response, response.Length, out _, IntPtr.Zero))
+                if (!_ioControl.SendRawIoControl(handle, IoControlScsiMiniport, request, response, out _))
                 {
-                    _lastDirectIoctlError = Marshal.GetLastWin32Error();
+                    _lastDirectIoctlError = _ioControl is WindowsStorageIoControl windowsIo ? windowsIo.LastIoControlError : Marshal.GetLastWin32Error();
                     return -1;
                 }
 

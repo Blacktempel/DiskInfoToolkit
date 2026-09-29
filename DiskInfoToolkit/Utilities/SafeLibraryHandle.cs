@@ -6,7 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
-using DiskInfoToolkit.Native;
+using BlackSharp.Core.Interop.Windows.Native;
 using Microsoft.Win32.SafeHandles;
 
 namespace DiskInfoToolkit.Utilities
@@ -30,7 +30,7 @@ namespace DiskInfoToolkit.Utilities
 
         protected override bool ReleaseHandle()
         {
-            return Kernel32Native.ReleaseLibrary(handle);
+            return Kernel32.FreeLibrary(handle);
         }
 
         #endregion

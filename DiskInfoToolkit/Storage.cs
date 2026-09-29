@@ -413,12 +413,26 @@ namespace DiskInfoToolkit
 
             var ioControl = StorageIoControlFactory.Create();
 
-            SafeFileHandle handle = ioControl.OpenDevice(
-                device.DevicePath,
-                IoAccess.GenericRead,
-                IoShare.ReadWrite,
-                IoCreation.OpenExisting,
-                IoFlags.Normal);
+            SafeFileHandle handle;
+
+            if (OS.IsWindows() && ioControl is WindowsStorageIoControl windowsIo)
+            {
+                handle = windowsIo.OpenDeviceSynchronous(
+                    device.DevicePath,
+                    IoAccess.GenericRead,
+                    IoShare.ReadWrite,
+                    IoCreation.OpenExisting,
+                    IoFlags.Normal);
+            }
+            else
+            {
+                handle = ioControl.OpenDevice(
+                    device.DevicePath,
+                    IoAccess.GenericRead,
+                    IoShare.ReadWrite,
+                    IoCreation.OpenExisting,
+                    IoFlags.Normal);
+            }
 
             using (handle)
             {
