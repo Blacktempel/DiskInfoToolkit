@@ -108,9 +108,7 @@ namespace DiskInfoToolkit.Probes
             AddAttribute(attributes, NvmeAvailableSpareAttributeId, smartLogData[3], smartLogData[3], 0, smartLogData[4]);
             AddAttribute(attributes, NvmeAvailableSpareThresholdAttributeId, smartLogData[4], smartLogData[4], 0, 0);
 
-            byte percentageUsed = smartLogData[5];
-            byte percentageHealth = percentageUsed <= 100 ? (byte)(100 - percentageUsed) : (byte)0;
-            AddAttribute(attributes, NvmePercentageUsedAttributeId, percentageUsed, percentageHealth, 0, 0);
+            AddAttribute(attributes, NvmePercentageUsedAttributeId, smartLogData[5], smartLogData[5], 0, 0);
 
             AddAttribute(attributes, NvmeDataUnitsReadAttributeId, ReadLittleEndianUInt64(smartLogData, 32), 0, 0, 0);
             AddAttribute(attributes, NvmeDataUnitsWrittenAttributeId, ReadLittleEndianUInt64(smartLogData, 48), 0, 0, 0);
