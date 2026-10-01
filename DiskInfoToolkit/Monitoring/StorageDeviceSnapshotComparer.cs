@@ -98,6 +98,7 @@ namespace DiskInfoToolkit.Monitoring
             Append(builder, device.Csmi.NegotiatedLinkRateName);
             Append(builder, device.Csmi.AttachedSasAddress);
             Append(builder, device.Csmi.TargetProtocol);
+            Append(builder, device.PartitionsAreStale);
 
             if (device.Partitions != null)
             {

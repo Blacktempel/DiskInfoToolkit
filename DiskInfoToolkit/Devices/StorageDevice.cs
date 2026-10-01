@@ -367,6 +367,21 @@ namespace DiskInfoToolkit.Devices
         public List<StoragePartitionInfo> Partitions { get; set; }
 
         /// <summary>
+        /// Gets the time of the last complete partition read. Null means no complete snapshot has been read.
+        /// </summary>
+        public DateTime? PartitionsLastReadUtc { get; set; }
+
+        /// <summary>
+        /// Gets the time of the latest partition read attempt, successful or otherwise.
+        /// </summary>
+        public DateTime? PartitionsLastCheckedUtc { get; set; }
+
+        /// <summary>
+        /// Gets whether the partition snapshot could not be verified by the latest attempted read.
+        /// </summary>
+        public bool PartitionsAreStale { get; set; }
+
+        /// <summary>
         /// Gets a value indicating whether any partition on this disk belongs to a dynamic disk layout.
         /// </summary>
         public bool IsDynamicDisk

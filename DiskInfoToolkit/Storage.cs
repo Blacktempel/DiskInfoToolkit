@@ -78,6 +78,8 @@ namespace DiskInfoToolkit
 
         private static readonly AutoResetEvent RescanSignal = new AutoResetEvent(false);
 
+        private static readonly AutoResetEvent PartitionRefreshScheduleSignal = new AutoResetEvent(false);
+
         private static readonly ManualResetEvent MonitoringStopSignal = new ManualResetEvent(false);
 
         private static Thread _messageLoopThread;
@@ -93,6 +95,8 @@ namespace DiskInfoToolkit
         private static bool _explicitMonitoringStarted;
 
         private static TimeSpan _mediaWatchLoopDelay = TimeSpan.FromSeconds(1);
+
+        private static TimeSpan _partitionRefreshInterval = TimeSpan.FromMinutes(5);
 
         private static CultureInfo _resourceCulture = CultureInfo.InvariantCulture;
 
@@ -143,6 +147,38 @@ namespace DiskInfoToolkit
                 {
                     _mediaWatchLoopDelay = value;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets how often monitored disks have their partitions checked independently of SMART refreshes.
+        /// Zero disables the periodic check; device notifications and explicit refreshes still work.
+        /// </summary>
+        /// <remarks>The default interval is five minutes.</remarks>
+        public static TimeSpan PartitionRefreshInterval
+        {
+            get
+            {
+                lock (SyncRoot)
+                {
+                    return _partitionRefreshInterval;
+                }
+            }
+            set
+            {
+                if (value < TimeSpan.Zero
+                 || (value > TimeSpan.Zero && value < TimeSpan.FromMilliseconds(1))
+                 || value.TotalMilliseconds > int.MaxValue)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                }
+
+                lock (SyncRoot)
+                {
+                    _partitionRefreshInterval = value;
+                }
+
+                PartitionRefreshScheduleSignal.Set();
             }
         }
 
@@ -259,7 +295,8 @@ namespace DiskInfoToolkit
         }
 
         /// <summary>
-        /// Refreshes the current state of the specified storage device.
+        /// Refreshes the current state of the specified storage device. Partitions are checked
+        /// when <see cref="PartitionRefreshInterval"/> has elapsed since the last attempt.
         /// </summary>
         /// <param name="device">The device to refresh.</param>
         /// <returns>Whether the device state was successfully refreshed or device had no changes.</returns>
@@ -268,11 +305,12 @@ namespace DiskInfoToolkit
         /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool Refresh(StorageDevice device)
         {
-            return Refresh(device, true, true, true);
+            return Refresh(device, true, IsPartitionRefreshDue(device), true);
         }
 
         /// <summary>
-        /// Refreshes the current state of the specified storage device.
+        /// Refreshes the current state of the specified storage device. Partitions are checked
+        /// when <see cref="PartitionRefreshInterval"/> has elapsed since the last attempt.
         /// </summary>
         /// <param name="device">The device to refresh.</param>
         /// <param name="refreshSmartData">Whether to refresh SMART data. When disabled, previously collected SMART data is retained.</param>
@@ -282,7 +320,7 @@ namespace DiskInfoToolkit
         /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool Refresh(StorageDevice device, bool refreshSmartData)
         {
-            return Refresh(device, true, true, refreshSmartData);
+            return Refresh(device, true, IsPartitionRefreshDue(device), refreshSmartData);
         }
 
         /// <summary>
@@ -295,7 +333,7 @@ namespace DiskInfoToolkit
         /// Applications should throttle HDD refresh intervals appropriately.</remarks>
         public static bool RefreshVolatileData(StorageDevice device)
         {
-            return Refresh(device, true, true, true);
+            return Refresh(device, true, false, true);
         }
 
         /// <summary>
@@ -514,10 +552,56 @@ namespace DiskInfoToolkit
             return string.Empty;
         }
 
+        /// <summary>
+        /// Carries the last complete layout through an unsuccessful topology scan when
+        /// the device identity is known. Disk number alone is unsafe after hotplug.
+        /// </summary>
+        /// <param name="previous">The last published device snapshot.</param>
+        /// <param name="current">The newly enumerated devices to update.</param>
+        internal static void PreservePartitionSnapshotsOnFailure(
+            IReadOnlyList<StorageDevice> previous, IReadOnlyList<StorageDevice> current)
+        {
+            foreach (var disk in current)
+            {
+                if (!disk.PartitionsAreStale)
+                {
+                    continue;
+                }
+
+                var earlier = previous.FirstOrDefault(old =>
+                    !string.IsNullOrWhiteSpace(disk.DeviceInstanceID)
+                 && !string.IsNullOrWhiteSpace(old.DeviceInstanceID)
+                 && string.Equals(disk.DeviceInstanceID, old.DeviceInstanceID, StringComparison.OrdinalIgnoreCase));
+
+                if (earlier == null && string.IsNullOrWhiteSpace(disk.DeviceInstanceID))
+                {
+                    earlier = previous.FirstOrDefault(old =>
+                        !string.IsNullOrWhiteSpace(disk.DevicePath)
+                     && !string.IsNullOrWhiteSpace(old.DevicePath)
+                     && !disk.DevicePath.StartsWith(@"\\.\PhysicalDrive", StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(disk.DevicePath, old.DevicePath, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (earlier?.PartitionsLastReadUtc.HasValue == true)
+                {
+                    var saved = StorageDeviceCloneHelper.Clone(earlier);
+
+                    disk.Partitions            = saved.Partitions;
+                    disk.PartitionsLastReadUtc = saved.PartitionsLastReadUtc;
+                }
+            }
+        }
+
         #endregion
 
         #region Private
 
+        /// <summary>
+        /// Enumerates devices and builds the visible and removable-media snapshots.
+        /// </summary>
+        /// <param name="visibleDisks">The devices shown to callers.</param>
+        /// <param name="mediaWatchDevices">Devices whose media presence is monitored.</param>
+        /// <param name="mediaStates">The current removable-media states.</param>
         private static void EnumerateStorageState(out List<StorageDevice> visibleDisks, out List<StorageDevice> mediaWatchDevices, out Dictionary<string, bool?> mediaStates)
         {
             //Get the raw list of disks
@@ -537,6 +621,10 @@ namespace DiskInfoToolkit
             StorageMediaPresenceMonitor.FilterNoMediaDevices(visibleDisks, mediaStates);
         }
 
+        /// <summary>
+        /// Detects disks and reads their partitions with one shared volume extent cache.
+        /// </summary>
+        /// <returns>The detected disks before visibility filtering.</returns>
         private static List<StorageDevice> EnumerateRawDisks()
         {
             var engine = new StorageDetectionEngine(StorageIoControlFactory.Create());
@@ -544,15 +632,43 @@ namespace DiskInfoToolkit
             //Get the raw list of disks
             var disks = engine.GetDisks();
             var ioControl = StorageIoControlFactory.Create();
+            var volumeExtents = new WindowsVolumeExtentMap(ioControl);
+
+            if (ioControl is WindowsStorageIoControl windowsIo)
+            {
+                foreach (var disk in disks)
+                {
+                    windowsIo.RegisterDeviceAliases(disk);
+                }
+            }
 
             foreach (var disk in disks)
             {
                 //Populate the partitions for all disks
-                StoragePartitionReader.PopulatePartitions(disk, ioControl);
+                StoragePartitionReader.PopulatePartitions(disk, ioControl, volumeExtents);
+
                 disk.LastUpdatedUtc = DateTime.UtcNow;
             }
 
             return disks;
+        }
+
+        /// <summary>
+        /// Checks whether a default device refresh should attempt another partition read.
+        /// </summary>
+        /// <param name="device">The device being refreshed.</param>
+        /// <returns>Whether the configured interval has elapsed since its last attempt.</returns>
+        private static bool IsPartitionRefreshDue(StorageDevice device)
+        {
+            if (device == null)
+            {
+                throw new ArgumentNullException(nameof(device));
+            }
+
+            TimeSpan interval = PartitionRefreshInterval;
+            return OS.IsWindows() && interval > TimeSpan.Zero
+                && (!device.PartitionsLastCheckedUtc.HasValue
+                    || DateTime.UtcNow - device.PartitionsLastCheckedUtc.Value >= interval);
         }
 
         private static void RefreshSingleDeviceProbeData(StorageDevice device, IStorageIoControl ioControl, bool refreshSmartData)
@@ -726,6 +842,7 @@ namespace DiskInfoToolkit
 
             MonitoringStopSignal.Set();
             RescanSignal.Set();
+            PartitionRefreshScheduleSignal.Set();
 
             if (OS.IsWindows())
             {
@@ -940,19 +1057,53 @@ namespace DiskInfoToolkit
             return true;
         }
 
+        /// <summary>
+        /// Processes topology signals and scheduled partition checks on the monitoring thread.
+        /// </summary>
         private static void RescanLoop()
         {
             WaitHandle[] waitHandles =
             {
                 RescanSignal,
-                MonitoringStopSignal
+                MonitoringStopSignal,
+                PartitionRefreshScheduleSignal
             };
+
+            DateTime nextPartitionRefreshUtc = GetNextPartitionRefreshUtc();
 
             while (true)
             {
-                if (WaitHandle.WaitAny(waitHandles) == 1)
+                int timeout = nextPartitionRefreshUtc == DateTime.MaxValue
+                    ? Timeout.Infinite
+                    : Math.Max(0, (int)Math.Min(int.MaxValue, (nextPartitionRefreshUtc - DateTime.UtcNow).TotalMilliseconds));
+
+                int signal = WaitHandle.WaitAny(waitHandles, timeout);
+
+                if (signal == 1)
                 {
                     return;
+                }
+
+                if (signal == 2)
+                {
+                    nextPartitionRefreshUtc = GetNextPartitionRefreshUtc();
+
+                    continue;
+                }
+
+                if (signal == WaitHandle.WaitTimeout)
+                {
+                    try
+                    {
+                        HandlePartitionRefresh();
+                    }
+                    catch
+                    {
+                    }
+
+                    nextPartitionRefreshUtc = GetNextPartitionRefreshUtc();
+
+                    continue;
                 }
 
                 if (MonitoringStopSignal.WaitOne(250))
@@ -972,6 +1123,8 @@ namespace DiskInfoToolkit
                 {
                 }
 
+                nextPartitionRefreshUtc = GetNextPartitionRefreshUtc();
+
                 if (MonitoringStopSignal.WaitOne(0))
                 {
                     return;
@@ -979,6 +1132,75 @@ namespace DiskInfoToolkit
             }
         }
 
+        /// <summary>
+        /// Calculates the next partition check from the current interval setting.
+        /// </summary>
+        /// <returns>The next UTC check time, or <see cref="DateTime.MaxValue"/> when disabled.</returns>
+        private static DateTime GetNextPartitionRefreshUtc()
+        {
+            TimeSpan interval = PartitionRefreshInterval;
+
+            return !OS.IsWindows() || interval == TimeSpan.Zero
+                 ? DateTime.MaxValue
+                 : DateTime.UtcNow.Add(interval);
+        }
+
+        /// <summary>
+        /// Refreshes monitored partition snapshots without repeating hardware probes.
+        /// </summary>
+        private static void HandlePartitionRefresh()
+        {
+            if (!OS.IsWindows())
+            {
+                return;
+            }
+
+            List<StorageDevice> previous;
+
+            lock (SyncRoot)
+            {
+                previous = StorageDeviceCloneHelper.CloneList(_currentDisks);
+            }
+
+            var current = StorageDeviceCloneHelper.CloneList(previous);
+            var ioControl = StorageIoControlFactory.Create();
+
+            var volumeExtents = new WindowsVolumeExtentMap(ioControl);
+
+            if (ioControl is WindowsStorageIoControl windowsIo)
+            {
+                foreach (var disk in current)
+                {
+                    windowsIo.RegisterDeviceAliases(disk);
+                }
+            }
+
+            foreach (var disk in current)
+            {
+                if (disk.IsDevicePowerOn == false)
+                {
+                    continue;
+                }
+
+                StoragePartitionReader.PopulatePartitions(disk, ioControl, volumeExtents);
+            }
+
+            var diff = StorageDeviceDiffBuilder.Build(previous, current);
+
+            lock (SyncRoot)
+            {
+                _currentDisks = StorageDeviceCloneHelper.CloneList(current);
+            }
+
+            if (diff.HasChanges)
+            {
+                _devicesChanged?.Invoke(null, diff);
+            }
+        }
+
+        /// <summary>
+        /// Re-enumerates devices after a topology signal and publishes the resulting changes.
+        /// </summary>
         private static void HandleStorageTopologyChanged()
         {
             List<StorageDevice> previous;
@@ -993,6 +1215,8 @@ namespace DiskInfoToolkit
             //Get the new state
             EnumerateStorageState(out var current, out var mediaWatchDevices, out var mediaStates);
 
+            PreservePartitionSnapshotsOnFailure(previous, current);
+
             var mergedMediaWatchDevices = MergeMediaWatchDevicesForMonitoring(previousMediaWatchDevices, mediaWatchDevices);
             var mergedMediaStates = OS.IsLinux()
                 ? StorageMediaPresenceMonitor.BuildStateSnapshot(mergedMediaWatchDevices)
@@ -1001,10 +1225,35 @@ namespace DiskInfoToolkit
             //Build the difference between the previous and current state
             var diff = StorageDeviceDiffBuilder.Build(previous, current);
 
+            if (OS.IsWindows())
+            {
+                var changedTopology = diff.Added.Concat(diff.Removed).ToList();
+
+                foreach (var disk in diff.Updated)
+                {
+                    var earlier = previous.FirstOrDefault(old =>
+                        !string.IsNullOrWhiteSpace(disk.DeviceInstanceID)
+                     && string.Equals(old.DeviceInstanceID, disk.DeviceInstanceID, StringComparison.OrdinalIgnoreCase));
+
+                    if (earlier != null && earlier.StorageDeviceNumber != disk.StorageDeviceNumber)
+                    {
+                        changedTopology.Add(disk);
+                    }
+                }
+
+                if (changedTopology.Count != 0)
+                {
+                    WindowsStorageIoControl.ClearTimeoutCooldownForTopologyChange(changedTopology);
+
+                    RescanSignal.Set();
+                }
+            }
+
             lock (SyncRoot)
             {
-                _currentDisks = StorageDeviceCloneHelper.CloneList(current);
+                _currentDisks      = StorageDeviceCloneHelper.CloneList(current);
                 _mediaWatchDevices = StorageDeviceCloneHelper.CloneList(mergedMediaWatchDevices);
+
                 _removableMediaStates = mergedMediaStates;
             }
 

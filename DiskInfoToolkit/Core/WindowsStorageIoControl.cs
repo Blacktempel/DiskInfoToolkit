@@ -16,6 +16,7 @@ using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -28,6 +29,10 @@ namespace DiskInfoToolkit.Core
     public sealed class WindowsStorageIoControl : IStorageIoControl
     {
         #region Fields
+
+        private const string KeyPrefix = "PATH:";
+
+        private const string InstancePrefix = "INSTANCE:";
 
         private const int DefaultOpenDeviceTimeoutMilliseconds = 3000;
 
@@ -47,6 +52,10 @@ namespace DiskInfoToolkit.Core
 
         private static int _openDeviceWorkerSequence;
 
+        private readonly ConcurrentDictionary<string, string> _deviceKeysByPath = new(StringComparer.OrdinalIgnoreCase);
+
+        private readonly ConcurrentDictionary<uint, string> _deviceKeysByNumber = new();
+
         #endregion
 
         #region Properties
@@ -62,7 +71,8 @@ namespace DiskInfoToolkit.Core
         public static int IoControlTimeoutMilliseconds { get; set; } = DefaultIoControlTimeoutMilliseconds;
 
         /// <summary>
-        /// Gets or sets how long a device path is skipped after an open or device control timeout. A value of zero or less disables the cooldown.
+        /// Gets or sets how long a device and its known path aliases are skipped after an open or device control timeout.
+        /// A value of zero or less disables the cooldown.
         /// </summary>
         public static int OpenDeviceTimeoutCooldownMilliseconds { get; set; } = DefaultOpenDeviceTimeoutCooldownMilliseconds;
 
@@ -80,6 +90,16 @@ namespace DiskInfoToolkit.Core
         /// Gets whether the most recent device control request succeeded.
         /// </summary>
         public bool LastIoControlSucceeded { get; private set; }
+
+        /// <summary>
+        /// Gets whether the most recent device open timed out or was skipped due to its timeout cooldown.
+        /// </summary>
+        public bool LastOpenDeviceTimedOut { get; private set; }
+
+        /// <summary>
+        /// Gets whether the most recent device open succeeded.
+        /// </summary>
+        internal bool LastOpenDeviceSucceeded { get; private set; }
 
         /// <summary>
         /// Gets whether the most recent failure indicates that further device requests should be skipped.
@@ -126,7 +146,7 @@ namespace DiskInfoToolkit.Core
                     {
                         state.TimedOut = true;
 
-                        RememberOpenDeviceTimeout(state.Path);
+                        RememberOpenDeviceTimeout(state.CooldownKey);
                     }
                 }
             }
@@ -224,7 +244,7 @@ namespace DiskInfoToolkit.Core
                 return false;
             }
 
-            if (bytesReturned <= 0)
+            if (bytesReturned <= 0 || bytesReturned > rawLayout.Length)
             {
                 rawLayout = null;
                 return false;
@@ -464,6 +484,116 @@ namespace DiskInfoToolkit.Core
         #region Internal
 
         /// <summary>
+        /// Associates verified paths for one detected disk for this I/O session.
+        /// </summary>
+        /// <param name="device">The disk whose aliases are registered.</param>
+        internal void RegisterDeviceAliases(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return;
+            }
+
+            string identity = GetDeviceIdentity(device);
+
+            if (identity == KeyPrefix)
+            {
+                return;
+            }
+
+            RegisterAlias(device.DevicePath, identity);
+            RegisterAlias(device.AlternateDevicePath, identity);
+
+            if (device.StorageDeviceNumber.HasValue)
+            {
+                uint number = device.StorageDeviceNumber.Value;
+
+                _deviceKeysByNumber[number] = identity;
+
+                RegisterAlias($@"\\.\PhysicalDrive{number.ToString(CultureInfo.InvariantCulture)}", identity);
+            }
+        }
+
+        /// <summary>
+        /// Associates a volume path only after its complete extent table identifies one disk.
+        /// Spanned volumes are deliberately left path-scoped.
+        /// </summary>
+        /// <param name="path">The volume path.</param>
+        /// <param name="extents">The complete, validated disk extents of the volume.</param>
+        internal void RegisterVolumeAlias(string path, IReadOnlyList<DISK_EXTENT_RAW> extents)
+        {
+            if (extents == null || extents.Count == 0)
+            {
+                return;
+            }
+
+            uint number = extents[0].DiskNumber;
+
+            if (extents.Any(extent => extent.DiskNumber != number)
+             || !_deviceKeysByNumber.TryGetValue(number, out string identity))
+            {
+                return;
+            }
+
+            RegisterAlias(path, identity);
+        }
+
+        /// <summary>
+        /// Removes stale cooldowns after a verified topology change. A disk number or
+        /// drive letter may now refer to different hardware.
+        /// </summary>
+        /// <param name="changedDevices">The added, removed, or renumbered devices.</param>
+        internal static void ClearTimeoutCooldownForTopologyChange(IEnumerable<StorageDevice> changedDevices)
+        {
+            foreach (var device in changedDevices)
+            {
+                string identity = GetDeviceIdentity(device);
+                if (identity != KeyPrefix)
+                {
+                    OpenDeviceTimeouts.TryRemove(identity, out _);
+                }
+
+                ClearPathTimeout(device.DevicePath);
+                ClearPathTimeout(device.AlternateDevicePath);
+
+                if (device.StorageDeviceNumber.HasValue)
+                {
+                    ClearPathTimeout($@"\\.\PhysicalDrive{device.StorageDeviceNumber.Value.ToString(CultureInfo.InvariantCulture)}");
+                }
+
+                if (device.Partitions != null)
+                {
+                    foreach (var partition in device.Partitions)
+                    {
+                        if (partition.DriveLetter.HasValue)
+                        {
+                            ClearPathTimeout($@"\\.\{partition.DriveLetter.Value}:");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resolves a path to the cooldown key of its known device, or to a path-specific key.
+        /// </summary>
+        /// <param name="path">The device or volume path.</param>
+        /// <returns>The cooldown key used for this path.</returns>
+        internal string GetCooldownKey(string path)
+        {
+            string normalized = StringUtil.TrimStorageString(path);
+
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                return KeyPrefix;
+            }
+
+            return _deviceKeysByPath.TryGetValue(normalized, out string identity)
+                 ? identity
+                 : KeyPrefix + normalized;
+        }
+
+        /// <summary>
         /// Opens a Windows device without overlapped I/O for callers that perform synchronous reads.
         /// </summary>
         /// <param name="path">The device path.</param>
@@ -507,12 +637,18 @@ namespace DiskInfoToolkit.Core
         /// <returns>The opened handle, or an invalid handle when opening fails or times out.</returns>
         private SafeFileHandle OpenDeviceInternal(string path, uint desiredAccess, uint shareMode, uint creationDisposition, uint flagsAndAttributes, bool overlapped)
         {
-            LastIoControlCode      = 0;
-            LastIoControlError     = 0;
-            LastIoControlSucceeded = true;
+            LastIoControlCode       = 0;
+            LastIoControlError      = 0;
+            LastIoControlSucceeded  = true;
+            LastOpenDeviceTimedOut  = false;
+            LastOpenDeviceSucceeded = false;
 
-            if (IsOpenDeviceInTimeoutCooldown(path))
+            string cooldownKey = GetCooldownKey(path);
+
+            if (IsOpenDeviceInTimeoutCooldown(cooldownKey))
             {
+                LastOpenDeviceTimedOut = true;
+
                 return CreateInvalidFileHandle();
             }
 
@@ -523,13 +659,25 @@ namespace DiskInfoToolkit.Core
             }
             else
             {
-                handle = OpenDeviceWithTimeout(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes, OpenDeviceTimeoutMilliseconds);
+                handle = OpenDeviceWithTimeout(
+                    path,
+                    desiredAccess,
+                    shareMode,
+                    creationDisposition,
+                    flagsAndAttributes,
+                    OpenDeviceTimeoutMilliseconds,
+                    cooldownKey,
+                    out bool timedOut);
+
+                LastOpenDeviceTimedOut = timedOut;
             }
 
             if (overlapped && handle != null && !handle.IsInvalid)
             {
-                DeviceHandles.Add(handle, new DeviceHandleState(path));
+                DeviceHandles.Add(handle, new DeviceHandleState(cooldownKey));
             }
+
+            LastOpenDeviceSucceeded = handle != null && !handle.IsInvalid;
 
             return handle;
         }
@@ -550,8 +698,22 @@ namespace DiskInfoToolkit.Core
             return StringUtil.TrimStorageString(Encoding.ASCII.GetString(buffer, offset, end - offset));
         }
 
-        private static SafeFileHandle OpenDeviceWithTimeout(string path, uint desiredAccess, uint shareMode, uint creationDisposition, uint flagsAndAttributes, int timeoutMilliseconds)
+        /// <summary>
+        /// Opens a device on the shared worker and bounds how long the caller waits.
+        /// </summary>
+        /// <param name="path">The device path.</param>
+        /// <param name="desiredAccess">The requested access flags.</param>
+        /// <param name="shareMode">The requested sharing flags.</param>
+        /// <param name="creationDisposition">The handle creation mode.</param>
+        /// <param name="flagsAndAttributes">Additional handle flags.</param>
+        /// <param name="timeoutMilliseconds">The maximum wait in milliseconds.</param>
+        /// <param name="cooldownKey">The key to cool down after a timeout.</param>
+        /// <param name="timedOut">Whether the open timed out or could not be queued.</param>
+        /// <returns>The opened handle, or an invalid handle when opening fails.</returns>
+        private static SafeFileHandle OpenDeviceWithTimeout(string path, uint desiredAccess, uint shareMode, uint creationDisposition,
+            uint flagsAndAttributes, int timeoutMilliseconds, string cooldownKey, out bool timedOut)
         {
+            timedOut = false;
             var request = new OpenDeviceRequest(path, desiredAccess, shareMode, creationDisposition, flagsAndAttributes);
 
             try
@@ -568,13 +730,18 @@ namespace DiskInfoToolkit.Core
 
                         if (!worker.TryEnqueue(request))
                         {
-                            RememberOpenDeviceTimeout(path);
+                            timedOut = true;
+
+                            RememberOpenDeviceTimeout(cooldownKey);
+
                             return CreateInvalidFileHandle();
                         }
                     }
 
                     if (!request.Wait(timeoutMilliseconds) && request.MarkTimedOut())
                     {
+                        timedOut = true;
+
                         worker.MarkAbandoned();
 
                         if (ReferenceEquals(_openDeviceWorker, worker))
@@ -582,7 +749,8 @@ namespace DiskInfoToolkit.Core
                             _openDeviceWorker = null;
                         }
 
-                        RememberOpenDeviceTimeout(path);
+                        RememberOpenDeviceTimeout(cooldownKey);
+
                         return CreateInvalidFileHandle();
                     }
                 }
@@ -600,6 +768,10 @@ namespace DiskInfoToolkit.Core
             }
         }
 
+        /// <summary>
+        /// Reuses the active open worker or creates one after an abandoned request.
+        /// </summary>
+        /// <returns>A worker that can accept an open request.</returns>
         private static OpenDeviceWorker GetOrCreateOpenDeviceWorker()
         {
             if (_openDeviceWorker == null || !_openDeviceWorker.CanAcceptWork)
@@ -610,16 +782,66 @@ namespace DiskInfoToolkit.Core
             return _openDeviceWorker;
         }
 
+        /// <summary>
+        /// Starts a new worker for device-open requests.
+        /// </summary>
+        /// <returns>The new worker.</returns>
         private static OpenDeviceWorker CreateOpenDeviceWorker()
         {
             int id = Interlocked.Increment(ref _openDeviceWorkerSequence);
             return new OpenDeviceWorker(id);
         }
 
-        private static bool IsOpenDeviceInTimeoutCooldown(string path)
+        /// <summary>
+        /// Associates one path with a verified device identity for this I/O session.
+        /// </summary>
+        /// <param name="path">The path to register.</param>
+        /// <param name="identity">The device cooldown key.</param>
+        private void RegisterAlias(string path, string identity)
         {
-            string key = StringUtil.TrimStorageString(path);
-            if (string.IsNullOrWhiteSpace(key))
+            string normalized = StringUtil.TrimStorageString(path);
+
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                _deviceKeysByPath[normalized] = identity;
+            }
+        }
+
+        /// <summary>
+        /// Removes a path-specific cooldown after the path may have changed owners.
+        /// </summary>
+        /// <param name="path">The path whose cooldown is removed.</param>
+        private static void ClearPathTimeout(string path)
+        {
+            string normalized = StringUtil.TrimStorageString(path);
+
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                OpenDeviceTimeouts.TryRemove(KeyPrefix + normalized, out _);
+            }
+        }
+
+        /// <summary>
+        /// Selects the device instance ID or a known path as its cooldown identity.
+        /// </summary>
+        /// <param name="device">The detected storage device.</param>
+        /// <returns>The device cooldown key.</returns>
+        private static string GetDeviceIdentity(StorageDevice device)
+        {
+            return !string.IsNullOrWhiteSpace(device?.DeviceInstanceID)
+                 ? InstancePrefix + StringUtil.TrimStorageString(device.DeviceInstanceID)
+                 : KeyPrefix + StringUtil.TrimStorageString(
+                     StringUtil.FirstNonEmpty(device?.DevicePath, device?.AlternateDevicePath));
+        }
+
+        /// <summary>
+        /// Checks whether a device or path is still within its timeout cooldown.
+        /// </summary>
+        /// <param name="key">The device or path cooldown key.</param>
+        /// <returns>Whether opens should be skipped.</returns>
+        private static bool IsOpenDeviceInTimeoutCooldown(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key) || key == KeyPrefix)
             {
                 return false;
             }
@@ -638,10 +860,13 @@ namespace DiskInfoToolkit.Core
             return false;
         }
 
-        private static void RememberOpenDeviceTimeout(string path)
+        /// <summary>
+        /// Starts or extends the cooldown for a timed-out device or path.
+        /// </summary>
+        /// <param name="key">The device or path cooldown key.</param>
+        private static void RememberOpenDeviceTimeout(string key)
         {
-            string key = StringUtil.TrimStorageString(path);
-            if (string.IsNullOrWhiteSpace(key) || OpenDeviceTimeoutCooldownMilliseconds <= 0)
+            if (string.IsNullOrWhiteSpace(key) || key == KeyPrefix || OpenDeviceTimeoutCooldownMilliseconds <= 0)
             {
                 return;
             }
@@ -669,10 +894,10 @@ namespace DiskInfoToolkit.Core
             /// <summary>
             /// Creates state for one opened device path.
             /// </summary>
-            /// <param name="path">The path used to open the handle.</param>
-            public DeviceHandleState(string path)
+            /// <param name="cooldownKey">The key shared by known aliases of this device.</param>
+            public DeviceHandleState(string cooldownKey)
             {
-                Path = path;
+                CooldownKey = cooldownKey;
             }
 
             #endregion
@@ -686,9 +911,9 @@ namespace DiskInfoToolkit.Core
             #region Properties
 
             /// <summary>
-            /// Gets the path used to open the handle.
+            /// Gets the cooldown key for the device behind this handle.
             /// </summary>
-            public string Path { get; }
+            public string CooldownKey { get; }
 
             /// <summary>
             /// Gets or sets whether this handle has timed out and must not be reused.

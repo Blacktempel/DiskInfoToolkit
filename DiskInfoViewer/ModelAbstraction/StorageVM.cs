@@ -11,6 +11,7 @@ using BlackSharp.Core.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
 using DiskInfoToolkit;
 using DiskInfoToolkit.Devices;
+using DiskInfoToolkit.Partitions;
 using DiskInfoToolkit.Smart;
 using DiskInfoViewer.ViewModels;
 using System.Collections.ObjectModel;
@@ -58,6 +59,8 @@ namespace DiskInfoViewer.ModelAbstraction
         bool _Initialized = false;
 
         StorageDevice _Storage;
+
+        StorageDevice _pendingPartitionSnapshot;
 
         #endregion
 
@@ -138,11 +141,44 @@ namespace DiskInfoViewer.ModelAbstraction
 
         #region Public
 
+        /// <summary>
+        /// Checks whether a device snapshot belongs to this view models disk.
+        /// </summary>
+        /// <param name="other">The snapshot to compare.</param>
+        /// <returns>Whether the device identities match.</returns>
         public bool EqualsStorage(StorageDevice other)
         {
-            return _Storage == other;
+            if (other == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_Storage.DeviceInstanceID)
+             || !string.IsNullOrWhiteSpace(other.DeviceInstanceID))
+            {
+                return !string.IsNullOrWhiteSpace(_Storage.DeviceInstanceID)
+                    && string.Equals(_Storage.DeviceInstanceID, other.DeviceInstanceID, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return !string.IsNullOrWhiteSpace(_Storage.DevicePath)
+                && string.Equals(_Storage.DevicePath, other.DevicePath, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Queues a monitored partition snapshot for the next UI update.
+        /// </summary>
+        /// <param name="snapshot">The monitored device snapshot.</param>
+        public void QueuePartitionSnapshot(StorageDevice snapshot)
+        {
+            if (snapshot != null && EqualsStorage(snapshot))
+            {
+                Interlocked.Exchange(ref _pendingPartitionSnapshot, snapshot);
+            }
+        }
+
+        /// <summary>
+        /// Refreshes volatile disk data and applies a pending partition snapshot to the view model.
+        /// </summary>
         public void Update()
         {
             bool isDevicePowerOn = _Storage.IsDevicePowerOn.GetValueOrDefault();
@@ -152,7 +188,22 @@ namespace DiskInfoViewer.ModelAbstraction
             if (isDevicePowerOn)
             {
                 //Update disk
-                if (!Storage.Refresh(_Storage))
+                bool changed = Storage.RefreshVolatileData(_Storage);
+
+                StorageDevice partitionSnapshot = Interlocked.Exchange(ref _pendingPartitionSnapshot, null);
+
+                if (partitionSnapshot != null)
+                {
+                    _Storage.Partitions = partitionSnapshot.Partitions != null
+                        ? new(partitionSnapshot.Partitions)
+                        : new();
+
+                    _Storage.PartitionsLastCheckedUtc = partitionSnapshot.PartitionsLastCheckedUtc;
+                    _Storage.PartitionsLastReadUtc    = partitionSnapshot.PartitionsLastReadUtc;
+                    _Storage.PartitionsAreStale       = partitionSnapshot.PartitionsAreStale;
+                }
+
+                if (!changed && partitionSnapshot == null)
                 {
                     if (!_Initialized)
                     {

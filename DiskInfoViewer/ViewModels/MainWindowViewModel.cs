@@ -6,6 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using Avalonia.Threading;
 using BlackSharp.Core.Asynchronous;
 using BlackSharp.Core.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -71,6 +72,11 @@ namespace DiskInfoViewer.ViewModels
 
         #region Private
 
+        /// <summary>
+        /// Applies monitored device and partition changes on the UI thread.
+        /// </summary>
+        /// <param name="sender">The monitoring event source.</param>
+        /// <param name="e">The detected device changes.</param>
         void OnStoragesChanged(object sender, StorageDevicesChangedEventArgs e)
         {
             if (!e.HasChanges)
@@ -78,18 +84,32 @@ namespace DiskInfoViewer.ViewModels
                 return;
             }
 
-            e.Added.ForEach(added =>
+            Dispatcher.UIThread.Post(() =>
             {
-                StorageVMs.Add(new(new(added)));
-            });
-
-            e.Removed.ForEach(removed =>
-            {
-                var removedVM = StorageVMs.FirstOrDefault(s => s.Storage.EqualsStorage(removed));
-                if (removedVM != null)
+                if (StorageVMs == null)
                 {
-                    StorageVMs.Remove(removedVM);
+                    return;
                 }
+
+                e.Added.ForEach(added =>
+                {
+                    StorageVMs.Add(new(new(added)));
+                });
+
+                e.Removed.ForEach(removed =>
+                {
+                    var removedVM = StorageVMs.FirstOrDefault(s => s.Storage.EqualsStorage(removed));
+                    if (removedVM != null)
+                    {
+                        StorageVMs.Remove(removedVM);
+                    }
+                });
+
+                e.Updated.ForEach(updated =>
+                {
+                    StorageVMs.FirstOrDefault(s => s.Storage.EqualsStorage(updated))
+                        ?.Storage.QueuePartitionSnapshot(updated);
+                });
             });
         }
 
