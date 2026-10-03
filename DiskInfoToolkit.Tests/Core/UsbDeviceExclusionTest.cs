@@ -6,6 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using BlackSharp.Core.Interop.Windows.Native;
 using DiskInfoToolkit.Core;
 using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Monitoring;
@@ -193,7 +194,7 @@ namespace DiskInfoToolkit.Tests.Core
             {
                 if (targetMethod.Name == nameof(IStorageIoControl.OpenDevice))
                 {
-                    return new SafeFileHandle(IntPtr.Zero, false);
+                    return new SafeFileHandle(Kernel32.InvalidHandle, false);
                 }
 
                 throw new AssertFailedException("Unexpected storage I/O: " + targetMethod.Name);

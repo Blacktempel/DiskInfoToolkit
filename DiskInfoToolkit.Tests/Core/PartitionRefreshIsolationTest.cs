@@ -6,6 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using BlackSharp.Core.Interop.Windows.Native;
 using DiskInfoToolkit.Core;
 using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Interop;
@@ -373,7 +374,7 @@ namespace DiskInfoToolkit.Tests.Core
 
                         if (MissingVolumes && ((string)args[0]).EndsWith(":", StringComparison.Ordinal))
                         {
-                            return new SafeFileHandle(IntPtr.Zero, true);
+                            return new SafeFileHandle(Kernel32.InvalidHandle, false);
                         }
 
                         return new SafeFileHandle(new IntPtr(1), false);
