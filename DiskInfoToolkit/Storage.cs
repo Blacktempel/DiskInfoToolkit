@@ -16,6 +16,7 @@ using DiskInfoToolkit.Partitions;
 using DiskInfoToolkit.Probes;
 using DiskInfoToolkit.Smart;
 using DiskInfoToolkit.StorageSpaces;
+using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.Globalization;
 using System.Reflection;
@@ -76,6 +77,8 @@ namespace DiskInfoToolkit
 
         private static readonly object SyncRoot = new object();
 
+        private static readonly object ScanRoot = new object();
+
         private static readonly AutoResetEvent RescanSignal = new AutoResetEvent(false);
 
         private static readonly AutoResetEvent PartitionRefreshScheduleSignal = new AutoResetEvent(false);
@@ -93,6 +96,8 @@ namespace DiskInfoToolkit
         private static bool _monitoringStopping;
 
         private static bool _explicitMonitoringStarted;
+
+        private static bool _excludeUsbDevices;
 
         private static TimeSpan _mediaWatchLoopDelay = TimeSpan.FromSeconds(1);
 
@@ -121,6 +126,42 @@ namespace DiskInfoToolkit
         /// </summary>
         /// <remarks>The default value is 3.</remarks>
         public static int MaxConsecutiveRefreshFailureCount { get; set; } = 3;
+
+        /// <summary>
+        /// Gets or sets whether USB storage devices are excluded from detection, refreshes and monitoring.
+        /// The default is false. A change during monitoring takes effect with the next scan;
+        /// a scan already in progress finishes with its previous setting.
+        /// </summary>
+        /// <remarks>When enabled, drive-letter, free-space mapping, the Storage Spaces physical-drive
+        /// fallback and mounted-volume usage scans are skipped because they can open USB volumes or
+        /// disks before their USB connection is known.</remarks>
+        public static bool ExcludeUsbDevices
+        {
+            get
+            {
+                lock (SyncRoot)
+                {
+                    return _excludeUsbDevices;
+                }
+            }
+            set
+            {
+                lock (SyncRoot)
+                {
+                    if (_excludeUsbDevices == value)
+                    {
+                        return;
+                    }
+
+                    _excludeUsbDevices = value;
+
+                    if (_monitoringStarted && !_monitoringStopping)
+                    {
+                        RescanSignal.Set();
+                    }
+                }
+            }
+        }
 
         /// <summary>
         /// Gets or sets the delay between removable-media polling cycles.<br/>
@@ -227,7 +268,7 @@ namespace DiskInfoToolkit
         /// <returns>A list of <see cref="StorageDevice"/> objects representing the currently visible storage devices.</returns>
         public static List<StorageDevice> GetDisks()
         {
-            EnumerateStorageState(out var visibleDisks, out var mediaWatchDevices, out var mediaStates);
+            EnumerateStorageState(ExcludeUsbDevices, out var visibleDisks, out var mediaWatchDevices, out var mediaStates);
             return visibleDisks;
         }
 
@@ -237,6 +278,7 @@ namespace DiskInfoToolkit
         /// </summary>
         /// <param name="disks">Existing disk objects to use for member references.</param>
         /// <returns>The non-primordial pools reported by Spaceport, or an empty list elsewhere.</returns>
+        /// <remarks>When <see cref="ExcludeUsbDevices"/> is enabled, USB member references and mounted-volume usage are omitted.</remarks>
         public static List<StoragePool> GetStoragePools(IReadOnlyList<StorageDevice> disks)
         {
             if (disks == null)
@@ -244,10 +286,16 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(disks));
             }
 
-            var ioControl = OS.IsWindows() ? StorageIoControlFactory.Create() : null;
-            var pools = WindowsStorageSpacesPoolReader.Enumerate(disks, ioControl);
+            bool excludeUsbDevices = ExcludeUsbDevices;
 
-            if (ioControl != null)
+            IReadOnlyList<StorageDevice> visibleDisks = excludeUsbDevices
+                ? disks.Where(disk => !UsbStorageDeviceIdentifier.IsUsbDevice(disk)).ToList()
+                : disks;
+
+            var ioControl = OS.IsWindows() ? StorageIoControlFactory.Create() : null;
+            var pools = WindowsStorageSpacesPoolReader.Enumerate(visibleDisks, ioControl);
+
+            if (ioControl != null && !excludeUsbDevices)
             {
                 // Resolve each space's current virtual disk number and volumes independently
                 // of the caller's disk snapshot, which may be empty or out of date.
@@ -348,7 +396,15 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(device));
             }
 
-            bool changed = StoragePartitionReader.PopulatePartitions(device, StorageIoControlFactory.Create());
+            bool excludeUsbDevices = ExcludeUsbDevices;
+
+            if (excludeUsbDevices && UsbStorageDeviceIdentifier.IsUsbDevice(device))
+            {
+                return false;
+            }
+
+            bool changed = StoragePartitionReader.PopulatePartitions(device, StorageIoControlFactory.Create(), null, !excludeUsbDevices);
+
             device.LastUpdatedUtc = DateTime.UtcNow;
             return changed;
         }
@@ -386,6 +442,13 @@ namespace DiskInfoToolkit
                 throw new ArgumentNullException(nameof(device));
             }
 
+            bool excludeUsbDevices = ExcludeUsbDevices;
+
+            if (excludeUsbDevices && UsbStorageDeviceIdentifier.IsUsbDevice(device))
+            {
+                return false;
+            }
+
             var ioControl = StorageIoControlFactory.Create();
             var refreshed = StorageDeviceCloneHelper.Clone(device);
 
@@ -396,7 +459,7 @@ namespace DiskInfoToolkit
 
             if (refreshPartitions)
             {
-                StoragePartitionReader.PopulatePartitions(refreshed, ioControl);
+                StoragePartitionReader.PopulatePartitions(refreshed, ioControl, null, !excludeUsbDevices);
             }
 
             refreshed.LastUpdatedUtc = DateTime.UtcNow;
@@ -447,6 +510,11 @@ namespace DiskInfoToolkit
             if (device == null)
             {
                 throw new ArgumentNullException(nameof(device));
+            }
+
+            if (ExcludeUsbDevices && UsbStorageDeviceIdentifier.IsUsbDevice(device))
+            {
+                return;
             }
 
             var ioControl = StorageIoControlFactory.Create();
@@ -599,13 +667,14 @@ namespace DiskInfoToolkit
         /// <summary>
         /// Enumerates devices and builds the visible and removable-media snapshots.
         /// </summary>
+        /// <param name="excludeUsbDevices">Whether USB devices are excluded for this scan.</param>
         /// <param name="visibleDisks">The devices shown to callers.</param>
         /// <param name="mediaWatchDevices">Devices whose media presence is monitored.</param>
         /// <param name="mediaStates">The current removable-media states.</param>
-        private static void EnumerateStorageState(out List<StorageDevice> visibleDisks, out List<StorageDevice> mediaWatchDevices, out Dictionary<string, bool?> mediaStates)
+        private static void EnumerateStorageState(bool excludeUsbDevices, out List<StorageDevice> visibleDisks, out List<StorageDevice> mediaWatchDevices, out Dictionary<string, bool?> mediaStates)
         {
             //Get the raw list of disks
-            var rawDisks = EnumerateRawDisks();
+            var rawDisks = EnumerateRawDisks(excludeUsbDevices);
 
             //Extract the media-watch candidates and build the media presence state snapshot before filtering
             mediaWatchDevices = StorageMediaPresenceMonitor.ExtractMediaWatchDevices(rawDisks);
@@ -625,12 +694,12 @@ namespace DiskInfoToolkit
         /// Detects disks and reads their partitions with one shared volume extent cache.
         /// </summary>
         /// <returns>The detected disks before visibility filtering.</returns>
-        private static List<StorageDevice> EnumerateRawDisks()
+        private static List<StorageDevice> EnumerateRawDisks(bool excludeUsbDevices)
         {
             var engine = new StorageDetectionEngine(StorageIoControlFactory.Create());
 
             //Get the raw list of disks
-            var disks = engine.GetDisks();
+            var disks = engine.GetDisks(excludeUsbDevices);
             var ioControl = StorageIoControlFactory.Create();
             var volumeExtents = new WindowsVolumeExtentMap(ioControl);
 
@@ -645,7 +714,7 @@ namespace DiskInfoToolkit
             foreach (var disk in disks)
             {
                 //Populate the partitions for all disks
-                StoragePartitionReader.PopulatePartitions(disk, ioControl, volumeExtents);
+                StoragePartitionReader.PopulatePartitions(disk, ioControl, volumeExtents, !excludeUsbDevices);
 
                 disk.LastUpdatedUtc = DateTime.UtcNow;
             }
@@ -766,7 +835,7 @@ namespace DiskInfoToolkit
             MonitoringStopSignal.Reset();
 
             //Get the initial storage state before starting the monitoring threads, so that we have a baseline for change detection and can populate the media watch state
-            EnumerateStorageState(out var initialVisibleDisks, out var initialMediaWatchDevices, out var initialMediaStates);
+            EnumerateStorageState(_excludeUsbDevices, out var initialVisibleDisks, out var initialMediaWatchDevices, out var initialMediaStates);
 
             _currentDisks = StorageDeviceCloneHelper.CloneList(initialVisibleDisks);
             _mediaWatchDevices = StorageDeviceCloneHelper.CloneList(initialMediaWatchDevices);
@@ -934,13 +1003,29 @@ namespace DiskInfoToolkit
 
         private static bool CheckForRemovableMediaStateChanges()
         {
+            lock (ScanRoot)
+            {
+                return CheckForRemovableMediaStateChangesCore();
+            }
+        }
+
+        private static bool CheckForRemovableMediaStateChangesCore()
+        {
             List<StorageDevice> snapshot;
             Dictionary<string, bool?> previousStates;
+            bool excludeUsbDevices;
 
             lock (SyncRoot)
             {
                 snapshot = StorageDeviceCloneHelper.CloneList(_mediaWatchDevices);
                 previousStates = new Dictionary<string, bool?>(_removableMediaStates, StringComparer.OrdinalIgnoreCase);
+
+                excludeUsbDevices = _excludeUsbDevices;
+            }
+
+            if (excludeUsbDevices)
+            {
+                snapshot.RemoveAll(UsbStorageDeviceIdentifier.IsUsbDevice);
             }
 
             var currentStates = StorageMediaPresenceMonitor.BuildStateSnapshot(snapshot);
@@ -1150,19 +1235,35 @@ namespace DiskInfoToolkit
         /// </summary>
         private static void HandlePartitionRefresh()
         {
+            lock (ScanRoot)
+            {
+                HandlePartitionRefreshCore();
+            }
+        }
+
+        private static void HandlePartitionRefreshCore()
+        {
             if (!OS.IsWindows())
             {
                 return;
             }
 
             List<StorageDevice> previous;
+            bool excludeUsbDevices;
 
             lock (SyncRoot)
             {
                 previous = StorageDeviceCloneHelper.CloneList(_currentDisks);
+                excludeUsbDevices = _excludeUsbDevices;
             }
 
             var current = StorageDeviceCloneHelper.CloneList(previous);
+
+            if (excludeUsbDevices)
+            {
+                current.RemoveAll(UsbStorageDeviceIdentifier.IsUsbDevice);
+            }
+
             var ioControl = StorageIoControlFactory.Create();
 
             var volumeExtents = new WindowsVolumeExtentMap(ioControl);
@@ -1182,7 +1283,7 @@ namespace DiskInfoToolkit
                     continue;
                 }
 
-                StoragePartitionReader.PopulatePartitions(disk, ioControl, volumeExtents);
+                StoragePartitionReader.PopulatePartitions(disk, ioControl, volumeExtents, !excludeUsbDevices);
             }
 
             var diff = StorageDeviceDiffBuilder.Build(previous, current);
@@ -1203,21 +1304,39 @@ namespace DiskInfoToolkit
         /// </summary>
         private static void HandleStorageTopologyChanged()
         {
+            lock (ScanRoot)
+            {
+                HandleStorageTopologyChangedCore();
+            }
+        }
+
+        private static void HandleStorageTopologyChangedCore()
+        {
             List<StorageDevice> previous;
             List<StorageDevice> previousMediaWatchDevices;
+            bool excludeUsbDevices;
+
             lock (SyncRoot)
             {
                 //Clone the previous state to avoid holding the lock during the potentially long enumeration and diffing operations
                 previous = StorageDeviceCloneHelper.CloneList(_currentDisks);
                 previousMediaWatchDevices = StorageDeviceCloneHelper.CloneList(_mediaWatchDevices);
+
+                excludeUsbDevices = _excludeUsbDevices;
             }
 
             //Get the new state
-            EnumerateStorageState(out var current, out var mediaWatchDevices, out var mediaStates);
+            EnumerateStorageState(excludeUsbDevices, out var current, out var mediaWatchDevices, out var mediaStates);
 
             PreservePartitionSnapshotsOnFailure(previous, current);
 
             var mergedMediaWatchDevices = MergeMediaWatchDevicesForMonitoring(previousMediaWatchDevices, mediaWatchDevices);
+
+            if (excludeUsbDevices)
+            {
+                mergedMediaWatchDevices.RemoveAll(UsbStorageDeviceIdentifier.IsUsbDevice);
+            }
+
             var mergedMediaStates = OS.IsLinux()
                 ? StorageMediaPresenceMonitor.BuildStateSnapshot(mergedMediaWatchDevices)
                 : mediaStates;

@@ -1,4 +1,4 @@
-# DiskInfoToolkit
+﻿# DiskInfoToolkit
 [![GitHub license](https://img.shields.io/github/license/blacktempel/diskinfotoolkit?label=License)](https://github.com/blacktempel/diskinfotoolkit/blob/master/LICENSE)
 [![Build master](https://github.com/Blacktempel/DiskInfoToolkit/actions/workflows/master.yml/badge.svg)](https://github.com/Blacktempel/DiskInfoToolkit/actions/workflows/master.yml)
 [![Nuget](https://img.shields.io/nuget/v/DiskInfoToolkit?label=NuGet)](https://www.nuget.org/packages/DiskInfoToolkit/)
@@ -50,6 +50,9 @@ static class Program
         //You can enable logging and set level, if you need logging output
         Logger.Instance.IsEnabled = true;
         Logger.Instance.LogLevel = LogLevel.Trace;
+
+        //Optional: exclude USB storage devices from detection and refreshes
+        Storage.ExcludeUsbDevices = false;
 
         //Get all storage devices
         var disks = Storage.GetDisks();

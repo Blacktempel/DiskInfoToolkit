@@ -98,6 +98,10 @@ namespace DiskInfoToolkit.Pnp
             node.ParentDisplayName = controllerName;
             node.ControllerIdentifier = BuildControllerIdentifier(driver, hardwareId, deviceDirectory);
 
+            node.IsUsbConnected = UsbStorageDeviceIdentifier.IsUsbInstanceId(node.ParentInstanceID)
+                || string.Equals(driver, "usb-storage", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(driver, "uas", StringComparison.OrdinalIgnoreCase);
+
             if (!string.IsNullOrWhiteSpace(vendor) && string.IsNullOrWhiteSpace(node.ParentDisplayName))
             {
                 node.ParentDisplayName = vendor;

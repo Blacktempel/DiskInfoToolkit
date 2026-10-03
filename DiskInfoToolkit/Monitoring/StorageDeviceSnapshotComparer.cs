@@ -57,6 +57,7 @@ namespace DiskInfoToolkit.Monitoring
             Append(builder, device.Controller.Family);
             Append(builder, device.ProbeStrategy);
             Append(builder, device.BusType);
+            Append(builder, device.IsUsbConnected);
             Append(builder, device.SupportsSmart);
             Append(builder, device.IsRemovable);
             Append(builder, device.IsDevicePowerOn);

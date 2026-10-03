@@ -175,7 +175,7 @@ namespace DiskInfoToolkit.Core
             {
                 // Obtain a device interface path from SetupAPI and validate
                 // the bus type and GUID serial before accepting its disk number.
-                diskInterfaces = PnpDiskEnumerator.EnumerateDiskInterfaces();
+                diskInterfaces = PnpDiskEnumerator.EnumerateDiskInterfaces(false);
             }
             catch (Win32Exception)
             {

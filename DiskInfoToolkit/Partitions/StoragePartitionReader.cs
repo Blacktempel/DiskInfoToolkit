@@ -41,8 +41,9 @@ namespace DiskInfoToolkit.Partitions
         /// <param name="device">The disk whose partitions are refreshed.</param>
         /// <param name="ioControl">The I/O implementation used to read the disk and volumes.</param>
         /// <param name="volumeExtents">An optional extent cache shared across disks in one scan.</param>
+        /// <param name="resolveVolumeInfo">Whether to query volumes for drive letters and free space.</param>
         /// <returns>Whether the partition snapshot or its stale state changed.</returns>
-        public static bool PopulatePartitions(StorageDevice device, IStorageIoControl ioControl, WindowsVolumeExtentMap volumeExtents = null)
+        public static bool PopulatePartitions(StorageDevice device, IStorageIoControl ioControl, WindowsVolumeExtentMap volumeExtents = null, bool resolveVolumeInfo = true)
         {
             if (device == null || ioControl == null || ioControl is LinuxStorageIoControl)
             {
@@ -79,7 +80,7 @@ namespace DiskInfoToolkit.Partitions
                         continue;
                     }
 
-                    if (!AssignDriveLettersAndFreeSpace(partitions, device, ioControl, volumeExtents))
+                    if (resolveVolumeInfo && !AssignDriveLettersAndFreeSpace(partitions, device, ioControl, volumeExtents))
                     {
                         // A different disk path cannot repair a failed volume lookup.
                         // Avoid repeating the layout IOCTL after a complete layout read.

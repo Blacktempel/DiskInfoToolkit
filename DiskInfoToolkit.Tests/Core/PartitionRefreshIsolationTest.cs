@@ -161,6 +161,44 @@ namespace DiskInfoToolkit.Tests.Core
         }
 
         /// <summary>
+        /// Reads a non-USB disk layout without opening unrelated volumes when USB exclusion is active.
+        /// </summary>
+        [TestMethod]
+        public void PartitionRefreshCanSkipVolumeQueries()
+        {
+            const long PartitionOffset = 1048576;
+
+            var device = new StorageDevice
+            {
+                DevicePath = @"\\?\synthetic-disk",
+                StorageDeviceNumber = 7
+            };
+
+            var io = DispatchProxy.Create<IStorageIoControl, FakeStorageIoProxy>();
+            var fake = (FakeStorageIoProxy)io;
+
+            int firstPartition = (int)Marshal.OffsetOf<DRIVE_LAYOUT_INFORMATION_EX_RAW>(
+                nameof(DRIVE_LAYOUT_INFORMATION_EX_RAW.PartitionInformation));
+
+            fake.Layout = new byte[firstPartition + Marshal.SizeOf<PARTITION_INFORMATION_EX_RAW>()];
+
+            BitConverter.GetBytes(1U             ).CopyTo(fake.Layout, sizeof(uint)       );
+            BitConverter.GetBytes(2              ).CopyTo(fake.Layout, firstPartition     );
+            BitConverter.GetBytes(PartitionOffset).CopyTo(fake.Layout, firstPartition +  8);
+            BitConverter.GetBytes(4096L          ).CopyTo(fake.Layout, firstPartition + 16);
+            BitConverter.GetBytes(1U             ).CopyTo(fake.Layout, firstPartition + 24);
+
+            bool changed = StoragePartitionReader.PopulatePartitions(device, io, resolveVolumeInfo: false);
+
+            Assert.IsTrue(changed);
+
+            Assert.AreEqual(1, fake.OpenCount);
+            Assert.AreEqual(1, device.Partitions.Count);
+
+            Assert.IsNull(device.Partitions[0].DriveLetter);
+        }
+
+        /// <summary>
         /// Reuses a failed volume lookup instead of issuing it again for another disk.
         /// </summary>
         [TestMethod]

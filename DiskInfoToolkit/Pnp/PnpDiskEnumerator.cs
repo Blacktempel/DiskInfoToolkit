@@ -21,6 +21,8 @@ namespace DiskInfoToolkit.Pnp
     {
         #region Fields
 
+        private const int MaxUsbDepth = 32;
+
         private static Guid DiskInterfaceGuid = new Guid("53f56307-b6bf-11d0-94f2-00a0c91efb8b");
 
         #endregion
@@ -29,9 +31,22 @@ namespace DiskInfoToolkit.Pnp
 
         public static List<PnpDiskNode> EnumerateDiskInterfaces()
         {
+            return EnumerateDiskInterfaces(Storage.ExcludeUsbDevices);
+        }
+
+        #endregion
+
+        #region Internal
+
+        internal static List<PnpDiskNode> EnumerateDiskInterfaces(bool excludeUsbDevices)
+        {
             if (OS.IsLinux())
             {
-                return LinuxSysfsDiskEnumerator.EnumerateDiskInterfaces();
+                var nodes = LinuxSysfsDiskEnumerator.EnumerateDiskInterfaces();
+
+                return excludeUsbDevices
+                     ? nodes.Where(node => !UsbStorageDeviceIdentifier.IsUsbDevice(node)).ToList()
+                     : nodes;
             }
 
             if (!OS.IsWindows())
@@ -69,7 +84,12 @@ namespace DiskInfoToolkit.Pnp
                         throw new Win32Exception(error, $"{nameof(SetupAPINative.SetupDiEnumDeviceInterfaces)} failed.");
                     }
 
-                    result.Add(ReadInterface(infoSet, ref interfaceData));
+                    var node = ReadInterface(infoSet, ref interfaceData);
+                    if (!excludeUsbDevices || !UsbStorageDeviceIdentifier.IsUsbDevice(node))
+                    {
+                        result.Add(node);
+                    }
+
                     ++index;
                 }
             }
@@ -122,12 +142,37 @@ namespace DiskInfoToolkit.Pnp
                     node.ControllerIdentifier = BuildControllerIdentifier(deviceInfoData.DevInst, string.Empty);
                 }
 
+                node.IsUsbConnected = HasUsbAncestor(deviceInfoData.DevInst);
+
                 return node;
             }
             finally
             {
                 Marshal.FreeHGlobal(detailBuffer);
             }
+        }
+
+        private static bool HasUsbAncestor(uint diskDevInst)
+        {
+            uint currentDevInst = diskDevInst;
+
+            for (int depth = 0; depth < MaxUsbDepth; ++depth)
+            {
+                if (UsbStorageDeviceIdentifier.IsUsbInstanceId(GetDeviceId(currentDevInst))
+                 || UsbStorageDeviceIdentifier.IsUsbService(GetDevNodeRegistryPropertyString(currentDevInst, CmDeviceRegistryProperty.Service)))
+                {
+                    return true;
+                }
+
+                if (CfgMgr32Native.CM_Get_Parent(out var parentDevInst, currentDevInst, 0) != 0)
+                {
+                    break;
+                }
+
+                currentDevInst = parentDevInst;
+            }
+
+            return false;
         }
 
         private static string GetSetupDiInstanceId(IntPtr infoSet, ref SP_DEVINFO_DATA deviceInfoData)

@@ -45,6 +45,20 @@ namespace DiskInfoToolkit.Core
 
         public List<StorageDevice> GetDisks()
         {
+            return GetDisks(Storage.ExcludeUsbDevices);
+        }
+
+        #endregion
+
+        #region Internal
+
+        internal List<StorageDevice> GetDisks(bool excludeUsbDevices)
+        {
+            return GetDisks(excludeUsbDevices, () => PnpDiskEnumerator.EnumerateDiskInterfaces(excludeUsbDevices));
+        }
+
+        internal List<StorageDevice> GetDisks(bool excludeUsbDevices, Func<List<PnpDiskNode>> enumerateDiskInterfaces)
+        {
             List<StorageDevice> result = new List<StorageDevice>();
 
 #if DEBUG
@@ -52,7 +66,7 @@ namespace DiskInfoToolkit.Core
 #endif
 
             //Enumerate disk interfaces via PnP (SetupAPI) and create initial StorageDevice objects with basic properties
-            List<PnpDiskNode> diskNodes = PnpDiskEnumerator.EnumerateDiskInterfaces();
+            List<PnpDiskNode> diskNodes = enumerateDiskInterfaces();
 
 #if DEBUG
             sw.Stop();
@@ -68,8 +82,19 @@ namespace DiskInfoToolkit.Core
                 ApplyControllerIdNames(device);
                 ClassifyController(device);
 
+                if (excludeUsbDevices && UsbStorageDeviceIdentifier.IsUsbDevice(device))
+                {
+                    continue;
+                }
+
                 //Fetch standard storage properties via Storage IOCTLs
                 AttachStandardStorageProperties(device, _ioControl);
+
+                if (excludeUsbDevices && UsbStorageDeviceIdentifier.IsUsbDevice(device))
+                {
+                    continue;
+                }
+
                 ApplyDeviceFilters(device);
                 SelectProbeStrategy(device);
 
@@ -87,14 +112,21 @@ namespace DiskInfoToolkit.Core
             IntelRstSataMemberEnumerator.RemoveAggregateVolumes(result, detectedRstSataMembers);
 
             //Microsoft Storage Spaces
-            MicrosoftStorageSpacesEnumerator.Enumerate(result, _ioControl, out var detectedMSStorageSpaces);
-
-            if (detectedMSStorageSpaces.Count > 0)
+            //The Storage Spaces fallback opens unclassified PhysicalDrive paths.
+            //Avoid that fallback while USB devices must not be accessed.
+            if (!excludeUsbDevices)
             {
+                MicrosoftStorageSpacesEnumerator.Enumerate(result, _ioControl, out var detectedMSStorageSpaces);
+
                 foreach (var storageSpacesDevice in detectedMSStorageSpaces)
                 {
                     result.Add(storageSpacesDevice);
                 }
+            }
+
+            if (excludeUsbDevices)
+            {
+                result.RemoveAll(UsbStorageDeviceIdentifier.IsUsbDevice);
             }
 
             foreach (var device in result)
@@ -117,10 +149,6 @@ namespace DiskInfoToolkit.Core
 
             return result;
         }
-
-        #endregion
-
-        #region Internal
 
         internal static void SelectProbeStrategy(StorageDevice device)
         {
@@ -407,6 +435,35 @@ namespace DiskInfoToolkit.Core
             }
         }
 
+        /// <summary>
+        /// Applies device filters after the storage bus type has been read.
+        /// </summary>
+        /// <param name="device">The disk to classify.</param>
+        internal static void ApplyDeviceFilters(StorageDevice device)
+        {
+            if (device.BusType == StorageBusType.Spaces)
+            {
+                return;
+            }
+
+            string display = device.DisplayName ?? string.Empty;
+
+            if (display.StartsWith(StorageDetectionFilter.Drobo5D, StringComparison.OrdinalIgnoreCase))
+            {
+                device.IsFiltered   = true;
+                device.FilterReason = "Known SMART-incompatible USB bridge.";
+                return;
+            }
+
+            if (display.StartsWith(StorageDetectionFilter.VirtualDisk, StringComparison.OrdinalIgnoreCase))
+            {
+                device.IsFiltered        = true;
+                device.FilterReason      = "Virtual disk filtered.";
+                device.Controller.Family = StorageControllerFamily.VirtualDisk;
+                device.TransportKind     = StorageTransportKind.Virtual;
+            }
+        }
+
         #endregion
 
         #region Private
@@ -424,6 +481,7 @@ namespace DiskInfoToolkit.Core
             device.Controller.Name       = StringUtil.FirstNonEmpty(node.ParentDisplayName, StorageTextConstants.DriveController);
             device.Controller.HardwareID = StringUtil.FirstNonEmpty(node.ParentHardwareID, node.HardwareID, string.Empty);
             device.Controller.Identifier = node.ControllerIdentifier ?? string.Empty;
+            device.IsUsbConnected        = node.IsUsbConnected;
 
             //The Spaceport disk instance ID is available before the descriptor is read.
             //Keep its virtual classification if that descriptor temporarily fails.
@@ -647,34 +705,6 @@ namespace DiskInfoToolkit.Core
             {
                 device.TransportKind     = StorageTransportKind.Scsi;
                 device.Controller.Family = StorageControllerFamily.Generic;
-            }
-        }
-
-        /// <summary>
-        /// Applies device filters after the storage bus type has been read.
-        /// </summary>
-        /// <param name="device">The disk to classify.</param>
-        internal static void ApplyDeviceFilters(StorageDevice device)
-        {
-            if (device.BusType == StorageBusType.Spaces)
-            {
-                return;
-            }
-
-            string display = device.DisplayName ?? string.Empty;
-            if (display.StartsWith(StorageDetectionFilter.Drobo5D, StringComparison.OrdinalIgnoreCase))
-            {
-                device.IsFiltered = true;
-                device.FilterReason = "Known SMART-incompatible USB bridge.";
-                return;
-            }
-
-            if (display.StartsWith(StorageDetectionFilter.VirtualDisk, StringComparison.OrdinalIgnoreCase))
-            {
-                device.IsFiltered = true;
-                device.FilterReason = "Virtual disk filtered.";
-                device.Controller.Family = StorageControllerFamily.VirtualDisk;
-                device.TransportKind = StorageTransportKind.Virtual;
             }
         }
 

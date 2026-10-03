@@ -144,6 +144,11 @@ namespace DiskInfoToolkit.Devices
         public StorageBusType BusType { get; set; }
 
         /// <summary>
+        /// Gets or sets a value indicating whether the disk is connected through USB.
+        /// </summary>
+        public bool IsUsbConnected { get; set; }
+
+        /// <summary>
         /// Gets or sets the sd protocol type.
         /// </summary>
         public StorageProtocolType? SdProtocolType { get; set; }

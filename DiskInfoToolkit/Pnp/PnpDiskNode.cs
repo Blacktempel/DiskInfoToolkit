@@ -53,6 +53,11 @@ namespace DiskInfoToolkit.Pnp
 
         public string ControllerIdentifier { get; set; }
 
+        /// <summary>
+        /// Gets or sets whether the disk interface belongs to a USB device.
+        /// </summary>
+        public bool IsUsbConnected { get; set; }
+
         #endregion
     }
 }
