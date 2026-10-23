@@ -316,7 +316,7 @@ namespace ConsoleOutputTest
         {
             lock (_LogDataLock)
             {
-                Logger.Instance.Add(LogLevel.Trace, text, DateTime.Now);
+                Storage.Logger.Add(LogLevel.Trace, text, DateTime.Now);
                 Console.WriteLine(text);
             }
         }

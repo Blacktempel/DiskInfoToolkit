@@ -6,6 +6,7 @@
  * Copyright (c) 2026 Florian K.
  */
 
+using BlackSharp.Core.Logging;
 using DiskInfoToolkit.Constants;
 using DiskInfoToolkit.Core;
 using DiskInfoToolkit.Devices;
@@ -120,6 +121,11 @@ namespace DiskInfoToolkit
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// Gets the logger used by DiskInfoToolkit.
+        /// </summary>
+        public static Logger Logger { get; } = new Logger();
 
         /// <summary>
         /// Gets or sets the maximum number of consecutive refresh failures allowed before fully reprobing the device.

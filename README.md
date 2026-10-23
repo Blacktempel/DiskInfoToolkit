@@ -41,6 +41,8 @@ Pull requests are welcome. Please include as much information as possible.
 
 **Sample code**
 ```C#
+using BlackSharp.Core.Logging;
+using DiskInfoToolkit;
 using DiskInfoToolkit.Monitoring;
 
 static class Program
@@ -48,8 +50,8 @@ static class Program
     static void Main(string[] args)
     {
         //You can enable logging and set level, if you need logging output
-        Logger.Instance.IsEnabled = true;
-        Logger.Instance.LogLevel = LogLevel.Trace;
+        Storage.Logger.IsEnabled = true;
+        Storage.Logger.LogLevel = LogLevel.Trace;
 
         //Optional: exclude USB storage devices from detection and refreshes
         Storage.ExcludeUsbDevices = false;
@@ -91,7 +93,7 @@ static class Program
         Storage.DevicesChanged -= DevicesChanged;
 
         //Save log file to current directory, if you enabled logging output
-        Logger.Instance.SaveToFile("Log.txt", false);
+        Storage.Logger.SaveToFile("Log.txt", false);
 
         //All done
         Console.WriteLine("Press enter to exit...");

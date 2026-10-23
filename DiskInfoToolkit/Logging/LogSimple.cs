@@ -45,7 +45,7 @@ namespace DiskInfoToolkit.Logging
 
         static void Log(LogLevel logLevel, string message)
         {
-            Logger.Instance.Add(logLevel, message, DateTime.Now);
+            Storage.Logger.Add(logLevel, message, DateTime.Now);
         }
 
         #endregion

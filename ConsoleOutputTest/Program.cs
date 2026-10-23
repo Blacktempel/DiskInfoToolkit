@@ -8,6 +8,7 @@
 
 using BlackSharp.Core.Extensions;
 using BlackSharp.Core.Logging;
+using DiskInfoToolkit;
 
 namespace ConsoleOutputTest
 {
@@ -16,8 +17,8 @@ namespace ConsoleOutputTest
         static void Main(string[] args)
         {
             //Enable logging and set level
-            Logger.Instance.IsEnabled = true;
-            Logger.Instance.LogLevel = LogLevel.Trace;
+            Storage.Logger.IsEnabled = true;
+            Storage.Logger.LogLevel = LogLevel.Trace;
 
             var tc = new TestClass();
 
@@ -32,11 +33,11 @@ namespace ConsoleOutputTest
                 var exceptionString = e.FullExceptionString();
                 Console.WriteLine(exceptionString);
 
-                Logger.Instance.Add(LogLevel.Error, exceptionString, DateTime.Now);
+                Storage.Logger.Add(LogLevel.Error, exceptionString, DateTime.Now);
             }
 
             //Save log file to current directory
-            Logger.Instance.SaveToFile("Log.txt", false);
+            Storage.Logger.SaveToFile("Log.txt", false);
 
             //All done
             Console.WriteLine("Press enter to exit...");

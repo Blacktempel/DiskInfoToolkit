@@ -13,8 +13,8 @@
     <RepositoryUrl>https://github.com/Blacktempel/DiskInfoToolkit</RepositoryUrl>
     <PackageTags>disk; device; nvme; ssd; hdd; toolkit; thermal; sensor; thermal sensor; smart; s.m.a.r.t.; data; monitoring; system; disk info</PackageTags>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
-    <AssemblyVersion>2.2.1</AssemblyVersion>
-    <FileVersion>2.2.1</FileVersion>
+    <AssemblyVersion>2.2.2</AssemblyVersion>
+    <FileVersion>2.2.2</FileVersion>
     <Version>$(AssemblyVersion)</Version>
     <PackageIcon>packageicon.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -127,11 +127,7 @@
     </EmbeddedResource>
   </ItemGroup>
 
-  <Target Name="GenerateCompressedResources"
-          BeforeTargets="DispatchToInnerBuild;PrepareForBuild"
-          Inputs="@(PlainCompressedResourceSource);@(CompressedResourceToolInput)"
-          Outputs="@(GeneratedCompressedResource)"
-          Condition="'$(DesignTimeBuild)' != 'true'">
+  <Target Name="GenerateCompressedResources" BeforeTargets="DispatchToInnerBuild;PrepareForBuild" Inputs="@(PlainCompressedResourceSource);@(CompressedResourceToolInput)" Outputs="@(GeneratedCompressedResource)" Condition="'$(DesignTimeBuild)' != 'true'">
 
     <!-- Ensure the shared output folder exists exactly once under obj\. -->
     <MakeDir Directories="$(CompressedResourcesDirectory)" />
@@ -147,7 +143,7 @@
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="BlackSharp.Core" Version="1.2.2" />
+    <PackageReference Include="BlackSharp.Core" Version="1.2.5" />
     <PackageReference Include="System.Memory" Version="4.6.3" />
   </ItemGroup>
 
