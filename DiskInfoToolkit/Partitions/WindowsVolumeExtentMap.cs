@@ -8,6 +8,7 @@
 
 using DiskInfoToolkit.Core;
 using DiskInfoToolkit.Interop;
+using DiskInfoToolkit.Utilities;
 
 namespace DiskInfoToolkit.Partitions
 {
@@ -53,6 +54,20 @@ namespace DiskInfoToolkit.Partitions
         {
             if (!_responses.TryGetValue(driveLetter, out var response))
             {
+                //Never open optical volumes: they are not disks and opening them can block media changes and ejects
+                if (OpticalDeviceHelper.IsOpticalDriveLetter(driveLetter))
+                {
+                    response = new VolumeExtentLookupResult(false, null, false, false);
+
+                    _responses.Add(driveLetter, response);
+
+                    extents       = null;
+                    severeFailure = false;
+                    queryFailed   = false;
+
+                    return false;
+                }
+
                 string path = $@"\\.\{driveLetter}:";
 
                 bool success = WindowsVolumeDiskExtentReader.TryRead(path, _ioControl, out var readExtents);

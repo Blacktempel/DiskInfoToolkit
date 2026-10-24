@@ -12,6 +12,7 @@ using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Native;
 using DiskInfoToolkit.Pnp;
 using DiskInfoToolkit.StorageSpaces;
+using DiskInfoToolkit.Utilities;
 using Microsoft.Win32.SafeHandles;
 using System.ComponentModel;
 using System.Text;
@@ -299,7 +300,9 @@ namespace DiskInfoToolkit.Core
 
                     // Only read the disk extents once for each unique volume device name.
                     // Multiple GUID paths may point to the same volume.
+                    // Optical volumes are skipped without opening them, so ejects and media changes are not blocked.
                     if (!seenVolumeDevices.Contains(volumeDevice)
+                     && !OpticalDeviceHelper.IsOpticalDeviceName(volumeDevice)
                      && WindowsVolumeDiskExtentReader.TryRead(volumePath.TrimEnd('\\'), ioControl, out var extents))
                     {
                         seenVolumeDevices.Add(volumeDevice);
