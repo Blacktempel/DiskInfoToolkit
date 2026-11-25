@@ -245,6 +245,69 @@ namespace DiskInfoToolkit.Core
                 || display.StartsWith(StorageDetectionFilter.VirtualDisk, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Returns whether the device belongs to an Intel RST or Intel VROC storage controller.
+        /// </summary>
+        public static bool IsIntelRstOrVrocController(StorageDevice device)
+        {
+            if (device == null)
+            {
+                return false;
+            }
+
+            if (device.Controller.Family == StorageControllerFamily.IntelRst
+             || device.Controller.Family == StorageControllerFamily.IntelVroc)
+            {
+                return true;
+            }
+
+            string service = StringUtil.TrimStorageString(device.Controller.Service);
+            if (string.IsNullOrWhiteSpace(service))
+            {
+                return false;
+            }
+
+            return service.StartsWith(ControllerServiceNames.IaStorPrefix, StringComparison.OrdinalIgnoreCase)
+                || service.Equals(ControllerServiceNames.IaVroc, StringComparison.OrdinalIgnoreCase)
+                || StringUtil.EqualsAny(service, ControllerServiceGroups.IntelRstControllerServices)
+                || StringUtil.EqualsAny(service, ControllerServiceGroups.IntelRaidProbeServices);
+        }
+
+        /// <summary>
+        /// Returns whether unit-level StorageDeviceProtocolSpecificProperty (50) NVMe queries are safe for this device.
+        /// </summary>
+        /// <remarks>
+        /// On Intel RST/VROC controllers (e.g. iaStorVD), storport routes PropertyID 50 through
+        /// RaUnitStorageQueryDeviceProtocolSpecificPropertyIoctl as a "PROTOCOL" SRB that triggers bugcheck 0x139.
+        /// </remarks>
+        public static bool ShouldAllowDeviceProtocolQuery(StorageDevice device)
+        {
+            return !IsIntelRstOrVrocController(device);
+        }
+
+        internal static bool ShouldStopAfterSevereIoError(
+            StorageDevice device,
+            IStorageIoControl ioControl,
+            string pathLabel,
+            string stage,
+            bool stopOnOpenTimeout = false)
+        {
+            if (ioControl is IStorageIoControlErrorState errorState
+             && (errorState.LastIoControlWasSevereDeviceError || (stopOnOpenTimeout && errorState.LastOpenDeviceTimedOut)))
+            {
+                string timeoutSuffix = stopOnOpenTimeout && errorState.LastOpenDeviceTimedOut
+                    ? ", openTimedOut=True"
+                    : string.Empty;
+
+                ProbeTraceRecorder.Add(
+                    device,
+                    $"{pathLabel}: stopping further probing after severe device I/O error during {stage}; ioControl=0x{errorState.LastIoControlCode:X8}, lastError={errorState.LastIoControlError}{timeoutSuffix}.");
+                return true;
+            }
+
+            return false;
+        }
+
         #endregion
 
         #region Private

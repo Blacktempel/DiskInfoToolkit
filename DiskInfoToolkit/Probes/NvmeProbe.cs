@@ -71,31 +71,46 @@ namespace DiskInfoToolkit.Probes
 
             using (handle)
             {
+                bool allowDeviceProtocolQuery = ControllerServiceProbeRules.ShouldAllowDeviceProtocolQuery(device);
+                if (!allowDeviceProtocolQuery)
+                {
+                    ProbeTraceRecorder.Add(device, "NVMe path: skipping StorageDeviceProtocolSpecificProperty (50) on Intel RST/VROC controller.");
+                }
+
                 byte[] identifyControllerData = null;
                 byte[] identifyNamespaceData = null;
                 byte[] smartLogData = null;
+                bool abortedOnSevereIoError = false;
 
-                bool identifyControllerOk =
-                    TryStorageQueryNvmeIdentifyController(ioControl, handle, StorageAdapterProtocolSpecificProperty, out identifyControllerData)
-                    || TryStorageQueryNvmeIdentifyController(ioControl, handle, StorageDeviceProtocolSpecificProperty, out identifyControllerData);
+                bool identifyControllerOk = TryQueryIdentifyController(
+                    device,
+                    ioControl,
+                    handle,
+                    allowDeviceProtocolQuery,
+                    out identifyControllerData,
+                    out abortedOnSevereIoError);
 
-                bool identifyNamespaceOk =
-                    TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdOne, out identifyNamespaceData)
-                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdOne, out identifyNamespaceData)
-                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdAll, out identifyNamespaceData)
-                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdAll, out identifyNamespaceData)
-                    //Micron driver (mtinvme.sys) wants namespace 0
-                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdZero, out identifyNamespaceData)
-                    || TryStorageQueryNvmeIdentifyNamespace(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdZero, out identifyNamespaceData);
+                bool identifyNamespaceOk = !abortedOnSevereIoError && TryQueryAcrossNamespaces(
+                    device,
+                    ioControl,
+                    handle,
+                    allowDeviceProtocolQuery,
+                    NvmeDataTypeIdentify,
+                    NvmeIdentifyNamespaceCns,
+                    new[] { NvmeNamespaceIdOne, NvmeNamespaceIdAll, NvmeNamespaceIdZero },
+                    out identifyNamespaceData,
+                    out abortedOnSevereIoError);
 
-                bool smartOk =
-                    TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdAll, out smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdAll, out smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData)
-                    //Micron driver (mtinvme.sys) wants namespace 0
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdZero, out smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdZero, out smartLogData);
+                bool smartOk = !abortedOnSevereIoError && TryQueryAcrossNamespaces(
+                    device,
+                    ioControl,
+                    handle,
+                    allowDeviceProtocolQuery,
+                    NvmeDataTypeLogPage,
+                    NvmeLogPageSmartHealthInformation,
+                    new[] { NvmeNamespaceIdAll, NvmeNamespaceIdOne, NvmeNamespaceIdZero },
+                    out smartLogData,
+                    out abortedOnSevereIoError);
 
                 if (identifyControllerOk)
                 {
@@ -158,14 +173,22 @@ namespace DiskInfoToolkit.Probes
 
             using (handle)
             {
-                bool smartOk =
-                    TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdAll, out var smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdAll, out smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdOne, out smartLogData)
-                    //Micron driver (mtinvme.sys) wants namespace 0
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageAdapterProtocolSpecificProperty, NvmeNamespaceIdZero, out smartLogData)
-                    || TryStorageQueryNvmeSmartLog(ioControl, handle, StorageDeviceProtocolSpecificProperty, NvmeNamespaceIdZero, out smartLogData);
+                bool allowDeviceProtocolQuery = ControllerServiceProbeRules.ShouldAllowDeviceProtocolQuery(device);
+                if (!allowDeviceProtocolQuery)
+                {
+                    ProbeTraceRecorder.Add(device, "NVMe SMART refresh: skipping StorageDeviceProtocolSpecificProperty (50) on Intel RST/VROC controller.");
+                }
+
+                bool smartOk = TryQueryAcrossNamespaces(
+                    device,
+                    ioControl,
+                    handle,
+                    allowDeviceProtocolQuery,
+                    NvmeDataTypeLogPage,
+                    NvmeLogPageSmartHealthInformation,
+                    new[] { NvmeNamespaceIdAll, NvmeNamespaceIdOne, NvmeNamespaceIdZero },
+                    out var smartLogData,
+                    out _);
 
                 if (!smartOk)
                 {
@@ -188,49 +211,133 @@ namespace DiskInfoToolkit.Probes
 
         #region Private
 
-        private static bool TryStorageQueryNvmeIdentifyController(IStorageIoControl ioControl, SafeFileHandle handle, uint propertyId, out byte[] controllerData)
+        private static bool TryQueryIdentifyController(
+            StorageDevice device,
+            IStorageIoControl ioControl,
+            SafeFileHandle handle,
+            bool allowDeviceProtocolQuery,
+            out byte[] controllerData,
+            out bool abortedOnSevereIoError)
         {
-            var query = NVME_STORAGE_QUERY_WITH_BUFFER.CreateDefault();
-            query.Query.PropertyID = (int)propertyId;
-            query.Query.QueryType = (int)PropertyStandardQuery;
-            query.ProtocolSpecific.ProtocolType = ProtocolTypeNvme;
-            query.ProtocolSpecific.DataType = NvmeDataTypeIdentify;
-            query.ProtocolSpecific.ProtocolDataRequestValue = NvmeIdentifyControllerCns;
-            query.ProtocolSpecific.ProtocolDataRequestSubValue = 0;
-            query.ProtocolSpecific.ProtocolDataOffset = (uint)Marshal.SizeOf<STORAGE_PROTOCOL_SPECIFIC_DATA>();
-            query.ProtocolSpecific.ProtocolDataLength = NvmeBufferLength;
-
-            return ExecuteNvmeStorageQuery(ioControl, handle, query, out controllerData);
+            return TryExecuteProtocolQuery(
+                device,
+                ioControl,
+                handle,
+                allowDeviceProtocolQuery,
+                NvmeDataTypeIdentify,
+                NvmeIdentifyControllerCns,
+                0,
+                out controllerData,
+                out abortedOnSevereIoError);
         }
 
-        private static bool TryStorageQueryNvmeIdentifyNamespace(IStorageIoControl ioControl, SafeFileHandle handle, uint propertyId, uint namespaceId, out byte[] namespaceData)
+        private static bool TryQueryAcrossNamespaces(
+            StorageDevice device,
+            IStorageIoControl ioControl,
+            SafeFileHandle handle,
+            bool allowDeviceProtocolQuery,
+            uint dataType,
+            uint requestValue,
+            uint[] namespaceIds,
+            out byte[] responseData,
+            out bool abortedOnSevereIoError)
         {
-            var query = NVME_STORAGE_QUERY_WITH_BUFFER.CreateDefault();
-            query.Query.PropertyID = (int)propertyId;
-            query.Query.QueryType = (int)PropertyStandardQuery;
-            query.ProtocolSpecific.ProtocolType = ProtocolTypeNvme;
-            query.ProtocolSpecific.DataType = NvmeDataTypeIdentify;
-            query.ProtocolSpecific.ProtocolDataRequestValue = NvmeIdentifyNamespaceCns;
-            query.ProtocolSpecific.ProtocolDataRequestSubValue = namespaceId;
-            query.ProtocolSpecific.ProtocolDataOffset = (uint)Marshal.SizeOf<STORAGE_PROTOCOL_SPECIFIC_DATA>();
-            query.ProtocolSpecific.ProtocolDataLength = NvmeBufferLength;
+            for (int i = 0; i < namespaceIds.Length; ++i)
+            {
+                if (TryExecuteProtocolQuery(
+                    device,
+                    ioControl,
+                    handle,
+                    allowDeviceProtocolQuery,
+                    dataType,
+                    requestValue,
+                    namespaceIds[i],
+                    out responseData,
+                    out abortedOnSevereIoError))
+                {
+                    return true;
+                }
 
-            return ExecuteNvmeStorageQuery(ioControl, handle, query, out namespaceData);
+                if (abortedOnSevereIoError)
+                {
+                    return false;
+                }
+            }
+
+            responseData = null;
+            abortedOnSevereIoError = false;
+            return false;
         }
 
-        private static bool TryStorageQueryNvmeSmartLog(IStorageIoControl ioControl, SafeFileHandle handle, uint propertyId, uint namespaceId, out byte[] smartLogData)
+        private static bool TryExecuteProtocolQuery(
+            StorageDevice device,
+            IStorageIoControl ioControl,
+            SafeFileHandle handle,
+            bool allowDeviceProtocolQuery,
+            uint dataType,
+            uint requestValue,
+            uint requestSubValue,
+            out byte[] responseData,
+            out bool abortedOnSevereIoError)
+        {
+            if (TryExecuteSingleProtocolQuery(
+                ioControl,
+                handle,
+                StorageAdapterProtocolSpecificProperty,
+                dataType,
+                requestValue,
+                requestSubValue,
+                out responseData))
+            {
+                abortedOnSevereIoError = false;
+                return true;
+            }
+
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "NVMe path", "standard NVMe adapter protocol query", stopOnOpenTimeout: true))
+            {
+                abortedOnSevereIoError = true;
+                return false;
+            }
+
+            if (allowDeviceProtocolQuery
+             && TryExecuteSingleProtocolQuery(
+                ioControl,
+                handle,
+                StorageDeviceProtocolSpecificProperty,
+                dataType,
+                requestValue,
+                requestSubValue,
+                out responseData))
+            {
+                abortedOnSevereIoError = false;
+                return true;
+            }
+
+            abortedOnSevereIoError = allowDeviceProtocolQuery
+                && ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "NVMe path", "standard NVMe device protocol query", stopOnOpenTimeout: true);
+            return false;
+        }
+
+        private static bool TryExecuteSingleProtocolQuery(
+            IStorageIoControl ioControl,
+            SafeFileHandle handle,
+            uint propertyId,
+            uint dataType,
+            uint requestValue,
+            uint requestSubValue,
+            out byte[] responseData)
         {
             var query = NVME_STORAGE_QUERY_WITH_BUFFER.CreateDefault();
             query.Query.PropertyID = (int)propertyId;
             query.Query.QueryType = (int)PropertyStandardQuery;
             query.ProtocolSpecific.ProtocolType = ProtocolTypeNvme;
-            query.ProtocolSpecific.DataType = NvmeDataTypeLogPage;
-            query.ProtocolSpecific.ProtocolDataRequestValue = NvmeLogPageSmartHealthInformation;
-            query.ProtocolSpecific.ProtocolDataRequestSubValue = namespaceId;
+            query.ProtocolSpecific.DataType = dataType;
+            query.ProtocolSpecific.ProtocolDataRequestValue = requestValue;
+            query.ProtocolSpecific.ProtocolDataRequestSubValue = requestSubValue;
             query.ProtocolSpecific.ProtocolDataOffset = (uint)Marshal.SizeOf<STORAGE_PROTOCOL_SPECIFIC_DATA>();
             query.ProtocolSpecific.ProtocolDataLength = NvmeBufferLength;
 
-            return ExecuteNvmeStorageQuery(ioControl, handle, query, out smartLogData);
+            return ExecuteNvmeStorageQuery(ioControl, handle, query, out responseData);
         }
 
         private static bool ExecuteNvmeStorageQuery(IStorageIoControl ioControl, SafeFileHandle handle, NVME_STORAGE_QUERY_WITH_BUFFER query, out byte[] protocolData)

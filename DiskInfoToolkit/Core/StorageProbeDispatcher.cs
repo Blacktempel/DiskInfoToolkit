@@ -489,7 +489,7 @@ namespace DiskInfoToolkit.Core
             }
 
             //Probe for Intel RAID/VROC miniport data, which can work on some RAID configurations where NVMe pass-through does not work
-            if (device.Controller.Family == StorageControllerFamily.IntelRst || device.Controller.Family == StorageControllerFamily.IntelVroc)
+            if (ControllerServiceProbeRules.IsIntelRstOrVrocController(device))
             {
                 //First try the normal miniport probing method
                 if (TryProbeOperation(device, ioControl, StorageProbeOperation.IntelRaidMiniport, IntelRaidMiniportProbe.TryPopulateData))
@@ -498,11 +498,21 @@ namespace DiskInfoToolkit.Core
                     return;
                 }
 
+                if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "NVMe path", "Intel RAID/VROC miniport", stopOnOpenTimeout: true))
+                {
+                    return;
+                }
+
                 //If that fails, try the more aggressive signature sweep method, which tries multiple signatures to account for different RAID configurations and driver versions
                 //This can succeed in cases where the normal method fails due to signature mismatches
                 if (TryProbeOperation(device, ioControl, StorageProbeOperation.IntelRaidMiniportSignatureSweep, IntelRaidMiniportProbe.TryPopulateDataWithSignatureSweep))
                 {
                     ProbeTraceRecorder.Add(device, "NVMe path: Intel RAID/VROC multi-signature sweep succeeded.");
+                    return;
+                }
+
+                if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "NVMe path", "Intel RAID/VROC multi-signature sweep", stopOnOpenTimeout: true))
+                {
                     return;
                 }
             }
@@ -514,10 +524,20 @@ namespace DiskInfoToolkit.Core
                 return;
             }
 
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "NVMe path", "standard NVMe query", stopOnOpenTimeout: true))
+            {
+                return;
+            }
+
             //Probe for Intel NVMe pass-through data
             if (TryProbeOperation(device, ioControl, StorageProbeOperation.IntelNvme, IntelNvmeProbe.TryPopulateIntelNvmeData))
             {
                 ProbeTraceRecorder.Add(device, "NVMe path: Intel NVMe pass-through succeeded.");
+                return;
+            }
+
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "NVMe path", "Intel NVMe pass-through", stopOnOpenTimeout: true))
+            {
                 return;
             }
 
@@ -759,6 +779,11 @@ namespace DiskInfoToolkit.Core
                     return;
                 }
 
+                if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "CSMI RAID probing", stopOnOpenTimeout: true))
+                {
+                    return;
+                }
+
                 if (TryIntelRaidControllerPaths(device, ioControl))
                 {
                     return;
@@ -772,11 +797,21 @@ namespace DiskInfoToolkit.Core
                     return;
                 }
 
+                if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "Intel RAID probing", stopOnOpenTimeout: true))
+                {
+                    return;
+                }
+
                 //Try CSMI paths, which can work on a variety of RAID controllers that support the CSMI interface
                 if (TryCsmiRaidControllerPaths(device, ioControl))
                 {
                     return;
                 }
+            }
+
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "controller RAID probing", stopOnOpenTimeout: true))
+            {
+                return;
             }
 
             //Some SATA/ATA drives behind SAS HBAs or Storage Spaces are reported as BusTypeSas and
@@ -790,14 +825,29 @@ namespace DiskInfoToolkit.Core
                 return;
             }
 
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "direct SAT fallback", stopOnOpenTimeout: true))
+            {
+                return;
+            }
+
             //Try composite SCSI port paths, which can work on some RAID controllers that expose RAID metadata through SCSI port queries
             if (TryCompositeRaidPortPaths(device, ioControl))
             {
                 return;
             }
 
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "composite RAID port probing", stopOnOpenTimeout: true))
+            {
+                return;
+            }
+
             //Try any controller-specific fallbacks based on the controller's characteristics
             if (TryRaidControllerSpecificFallbacks(device, ioControl))
+            {
+                return;
+            }
+
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "controller-specific RAID fallbacks", stopOnOpenTimeout: true))
             {
                 return;
             }
@@ -874,7 +924,7 @@ namespace DiskInfoToolkit.Core
         {
             //If the controller is not an Intel RST or VROC family we skip these paths entirely
             //to save time and avoid unnecessary attempts that are unlikely to succeed
-            if (device.Controller.Family != StorageControllerFamily.IntelRst && device.Controller.Family != StorageControllerFamily.IntelVroc)
+            if (!ControllerServiceProbeRules.IsIntelRstOrVrocController(device))
             {
                 return false;
             }
@@ -888,6 +938,11 @@ namespace DiskInfoToolkit.Core
                     ProbeTraceRecorder.Add(device, "RAID path: Intel VROC pass-through succeeded.");
                     return true;
                 }
+
+                if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "Intel VROC pass-through", stopOnOpenTimeout: true))
+                {
+                    return false;
+                }
             }
 
             //Try Intel RAID/VROC miniport probing, which can work on some RAID configurations where NVMe pass-through does not work
@@ -896,6 +951,11 @@ namespace DiskInfoToolkit.Core
             {
                 ProbeTraceRecorder.Add(device, "RAID path: Intel RAID/VROC miniport succeeded.");
                 return true;
+            }
+
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "Intel RAID/VROC miniport", stopOnOpenTimeout: true))
+            {
+                return false;
             }
 
             //If the normal miniport probing fails, try the more aggressive signature sweep method
@@ -907,6 +967,11 @@ namespace DiskInfoToolkit.Core
                 return true;
             }
 
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "Intel RAID/VROC multi-signature miniport sweep", stopOnOpenTimeout: true))
+            {
+                return false;
+            }
+
             //Try Intel NVMe pass-through, which can work on some RAID configurations that don't support the
             //full miniport interface but still allow some NVMe commands to get identity and SMART data
             bool intelNvmeOk = TryProbeOperation(device, ioControl, StorageProbeOperation.IntelNvme, IntelNvmeProbe.TryPopulateIntelNvmeData);
@@ -916,7 +981,12 @@ namespace DiskInfoToolkit.Core
                 return true;
             }
 
-            //Try standard NVMe protocol queries, which can work on some RAID configurations
+            if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID path", "Intel NVMe pass-through", stopOnOpenTimeout: true))
+            {
+                return false;
+            }
+
+            //Try standard NVMe protocol queries (adapter-level only on Intel RST/VROC; NvmeProbe suppresses PropertyID 50)
             bool standardNvmeOk = TryProbeOperation(device, ioControl, StorageProbeOperation.StandardNvme, NvmeProbe.TryPopulateStandardNvmeData);
             if (standardNvmeOk)
             {

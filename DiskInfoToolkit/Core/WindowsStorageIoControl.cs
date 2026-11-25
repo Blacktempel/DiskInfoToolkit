@@ -26,7 +26,7 @@ namespace DiskInfoToolkit.Core
     /// <summary>
     /// Opens Windows storage devices and sends device control requests with bounded waits.
     /// </summary>
-    public sealed class WindowsStorageIoControl : IStorageIoControl
+    public sealed class WindowsStorageIoControl : IStorageIoControl, IStorageIoControlErrorState
     {
         #region Fields
 

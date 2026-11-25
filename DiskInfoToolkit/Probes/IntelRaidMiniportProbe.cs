@@ -136,6 +136,11 @@ namespace DiskInfoToolkit.Probes
                         break;
                     }
                 }
+
+                if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "Intel RAID miniport path", "signature sweep", stopOnOpenTimeout: true))
+                {
+                    break;
+                }
             }
 
             return any;
@@ -147,9 +152,21 @@ namespace DiskInfoToolkit.Probes
 
         private static bool TryPopulateDataWithSignature(StorageDevice device, IStorageIoControl ioControl, SafeFileHandle handle, string scsiPortPath, byte[] signature)
         {
-            bool identifyOk  = TryMiniportIdentify         (ioControl, handle, signature, device, out var identifyData);
+            bool identifyOk = TryMiniportIdentify(ioControl, handle, signature, device, out var identifyData);
+            if (!identifyOk && ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "Intel RAID miniport path", "controller identify", stopOnOpenTimeout: true))
+            {
+                return false;
+            }
+
             bool namespaceOk = TryMiniportIdentifyNamespace(ioControl, handle, signature, device, out var namespaceData);
-            bool smartOk     = TryMiniportSmart            (ioControl, handle, signature, device, out var smartLogData);
+            bool abortedAfterNamespace = !namespaceOk && ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "Intel RAID miniport path", "namespace identify", stopOnOpenTimeout: true);
+            if (abortedAfterNamespace && !identifyOk)
+            {
+                return false;
+            }
+
+            byte[] smartLogData = null;
+            bool smartOk = !abortedAfterNamespace && TryMiniportSmart(ioControl, handle, signature, device, out smartLogData);
 
             if (identifyOk)
             {
