@@ -134,13 +134,7 @@ namespace DiskInfoToolkit.Probes
 
         internal static bool ShouldStopAfterSevereUsbIoError(StorageDevice device, IStorageIoControl ioControl, string stage)
         {
-            if (ioControl is WindowsStorageIoControl windowsIo && windowsIo.LastIoControlWasSevereDeviceError)
-            {
-                ProbeTraceRecorder.Add(device, $"USB path: stopping further probing after severe device I/O error during {stage}; ioControl=0x{windowsIo.LastIoControlCode:X8}, lastError={windowsIo.LastIoControlError}.");
-                return true;
-            }
-
-            return false;
+            return ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "USB path", stage);
         }
 
         #endregion

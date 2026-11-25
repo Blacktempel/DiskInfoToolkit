@@ -17,7 +17,7 @@ namespace DiskInfoToolkit.Probes
         public static byte[] CreateIntelSignature()
         {
             byte[] signature = new byte[8];
-            byte[] source = Encoding.ASCII.GetBytes("IntelNVM");
+            byte[] source = Encoding.ASCII.GetBytes("IntelNvm");
             Array.Copy(source, signature, Math.Min(source.Length, signature.Length));
             return signature;
         }

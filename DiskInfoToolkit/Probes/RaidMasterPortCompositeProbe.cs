@@ -47,6 +47,10 @@ namespace DiskInfoToolkit.Probes
                     {
                         changed = true;
                     }
+                    else if (ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "RAID composite path", "Intel RAID/VROC signature sweep", stopOnOpenTimeout: true))
+                    {
+                        return false;
+                    }
                 }
 
                 if (CsmiPortCompositeProbe.TryPopulateDataFromHandle(device, ioControl, handle, scsiPortPath))

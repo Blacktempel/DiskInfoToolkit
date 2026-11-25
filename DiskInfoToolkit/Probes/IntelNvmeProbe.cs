@@ -61,9 +61,20 @@ namespace DiskInfoToolkit.Probes
                 byte[] namespaceData = null;
                 byte[] smartLogData = null;
 
-                bool identifyOk  = TryIdentify         (ioControl, handle, device, out identifyData);
+                bool identifyOk = TryIdentify(ioControl, handle, device, out identifyData);
+                if (!identifyOk && ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "Intel NVMe path", "controller identify", stopOnOpenTimeout: true))
+                {
+                    return false;
+                }
+
                 bool namespaceOk = TryIdentifyNamespace(ioControl, handle, device, out namespaceData);
-                bool smartOk     = TrySmartLog         (ioControl, handle, device, out smartLogData);
+                bool abortedAfterNamespace = !namespaceOk && ControllerServiceProbeRules.ShouldStopAfterSevereIoError(device, ioControl, "Intel NVMe path", "namespace identify", stopOnOpenTimeout: true);
+                if (abortedAfterNamespace && !identifyOk)
+                {
+                    return false;
+                }
+
+                bool smartOk = !abortedAfterNamespace && TrySmartLog(ioControl, handle, device, out smartLogData);
 
                 if (identifyOk)
                 {
@@ -152,73 +163,55 @@ namespace DiskInfoToolkit.Probes
 
         private static bool TryIdentify(IStorageIoControl ioControl, SafeFileHandle handle, StorageDevice device, out byte[] controllerData)
         {
-            controllerData = null;
-
-            var request = CreateBaseRequest(device);
-
-            request.Srb.Signature = IntelNvmeConstants.CreateIntelSignature();
-            request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
-            request.Payload.ParameterBufferLength = BufferLength;
-            request.Payload.ReturnBufferLength = BufferLength;
-            request.Payload.Cmd.CDW0 = IntelNvmeConstants.MakeCdw0(NvmeAdminIdentifyOpcode, 0);
-            request.Payload.Cmd.NSID = 0;
-            request.Payload.Cmd.CDW10 = NvmeIdentifyControllerCns;
-
-            var buffer = StructureHelper.GetBytes(request);
-
-            if (!ioControl.TryIntelNvmePassThrough(handle, buffer, buffer, out var bytesReturned))
-            {
-                return false;
-            }
-
-            var response = StructureHelper.FromBytes<INTEL_NVME_PASS_THROUGH>(buffer);
-
-            controllerData = new byte[BufferLength];
-            Buffer.BlockCopy(response.DataBuffer, 0, controllerData, 0, controllerData.Length);
-
-            return NvmeProbeUtil.HasAnyNonZeroByte(controllerData);
+            return TryExecutePassThroughCommand(
+                ioControl,
+                handle,
+                device,
+                IntelNvmeConstants.MakeCdw0(NvmeAdminIdentifyOpcode, 0),
+                0,
+                NvmeIdentifyControllerCns,
+                out controllerData);
         }
 
         private static bool TryIdentifyNamespace(IStorageIoControl ioControl, SafeFileHandle handle, StorageDevice device, out byte[] namespaceData)
         {
-            namespaceData = null;
-
-            var request = CreateBaseRequest(device);
-            request.Srb.Signature = IntelNvmeConstants.CreateIntelSignature();
-            request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
-            request.Payload.ParameterBufferLength = BufferLength;
-            request.Payload.ReturnBufferLength = BufferLength;
-            request.Payload.Cmd.CDW0 = IntelNvmeConstants.MakeCdw0(NvmeAdminIdentifyOpcode, 0);
-            request.Payload.Cmd.NSID = 1;
-            request.Payload.Cmd.CDW10 = NvmeIdentifyNamespaceCns;
-
-            var buffer = StructureHelper.GetBytes(request);
-
-            if (!ioControl.TryIntelNvmePassThrough(handle, buffer, buffer, out var bytesReturned))
-            {
-                return false;
-            }
-
-            var response = StructureHelper.FromBytes<INTEL_NVME_PASS_THROUGH>(buffer);
-
-            namespaceData = new byte[BufferLength];
-            Buffer.BlockCopy(response.DataBuffer, 0, namespaceData, 0, namespaceData.Length);
-
-            return NvmeProbeUtil.HasAnyNonZeroByte(namespaceData);
+            return TryExecutePassThroughCommand(
+                ioControl,
+                handle,
+                device,
+                IntelNvmeConstants.MakeCdw0(NvmeAdminIdentifyOpcode, 0),
+                1,
+                NvmeIdentifyNamespaceCns,
+                out namespaceData);
         }
 
         private static bool TrySmartLog(IStorageIoControl ioControl, SafeFileHandle handle, StorageDevice device, out byte[] smartLogData)
         {
-            smartLogData = null;
+            return TryExecutePassThroughCommand(
+                ioControl,
+                handle,
+                device,
+                IntelNvmeConstants.MakeCdw0(NvmeAdminGetLogPageOpcode, 0),
+                0xFFFFFFFF,
+                IntelNvmeConstants.MakeGetLogPageCdw10(NvmeSmartHealthLogId, BufferLength),
+                out smartLogData);
+        }
+
+        private static bool TryExecutePassThroughCommand(
+            IStorageIoControl ioControl,
+            SafeFileHandle handle,
+            StorageDevice device,
+            uint cdw0,
+            uint nsid,
+            uint cdw10,
+            out byte[] dataBuffer)
+        {
+            dataBuffer = null;
 
             var request = CreateBaseRequest(device);
-            request.Srb.Signature = IntelNvmeConstants.CreateIntelSignature();
-            request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
-            request.Payload.ParameterBufferLength = BufferLength;
-            request.Payload.ReturnBufferLength = BufferLength;
-            request.Payload.Cmd.CDW0 = IntelNvmeConstants.MakeCdw0(NvmeAdminGetLogPageOpcode, 0);
-            request.Payload.Cmd.NSID = 0xFFFFFFFF;
-            request.Payload.Cmd.CDW10 = IntelNvmeConstants.MakeGetLogPageCdw10(NvmeSmartHealthLogId, BufferLength);
+            request.Payload.Cmd.CDW0 = cdw0;
+            request.Payload.Cmd.NSID = nsid;
+            request.Payload.Cmd.CDW10 = cdw10;
 
             var buffer = StructureHelper.GetBytes(request);
 
@@ -229,21 +222,26 @@ namespace DiskInfoToolkit.Probes
 
             var response = StructureHelper.FromBytes<INTEL_NVME_PASS_THROUGH>(buffer);
 
-            smartLogData = new byte[BufferLength];
-            Buffer.BlockCopy(response.DataBuffer, 0, smartLogData, 0, smartLogData.Length);
+            dataBuffer = new byte[BufferLength];
+            Buffer.BlockCopy(response.DataBuffer, 0, dataBuffer, 0, dataBuffer.Length);
 
-            return NvmeProbeUtil.HasAnyNonZeroByte(smartLogData);
+            return NvmeProbeUtil.HasAnyNonZeroByte(dataBuffer);
         }
 
         private static INTEL_NVME_PASS_THROUGH CreateBaseRequest(StorageDevice device)
         {
             var request = INTEL_NVME_PASS_THROUGH.CreateDefault();
             request.Srb.HeaderLength = (uint)Marshal.SizeOf<SRB_IO_CONTROL>();
+            request.Srb.Signature = IntelNvmeConstants.CreateIntelSignature();
             request.Srb.Timeout = 10;
+            request.Srb.ControlCode = IoControlCodes.IOCTL_INTEL_NVME_PASS_THROUGH;
+            request.Srb.Length = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + BufferLength);
             request.Payload.Version = 1;
             request.Payload.PathID = device.Scsi.PathID.HasValue ? device.Scsi.PathID.Value : (byte)0;
             request.Payload.TargetID = device.Scsi.TargetID.HasValue ? device.Scsi.TargetID.Value : (byte)0;
             request.Payload.Lun = device.Scsi.Lun.HasValue ? device.Scsi.Lun.Value : (byte)0;
+            request.Payload.ParameterBufferLength = (uint)(Marshal.SizeOf<INTEL_NVME_PAYLOAD>() + Marshal.SizeOf<SRB_IO_CONTROL>());
+            request.Payload.ReturnBufferLength = BufferLength;
 
             return request;
         }
